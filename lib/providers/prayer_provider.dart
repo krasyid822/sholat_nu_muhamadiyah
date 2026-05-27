@@ -1,6 +1,10 @@
+// ignore_for_file: deprecated_member_use, avoid_web_libraries_in_flutter
 import 'dart:async';
+import 'dart:js' as js;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:adhan/adhan.dart';
+import 'package:intl/intl.dart';
 import '../models/app_settings.dart';
 import '../data/cities.dart';
 import 'settings_provider.dart';
@@ -32,6 +36,7 @@ class PrayerState {
 class PrayerNotifier extends StateNotifier<PrayerState?> {
   final AppSettings settings;
   Timer? _timer;
+  String? _lastNotifiedTimeKey;
 
   PrayerNotifier(this.settings) : super(null) {
     _startTimer();
@@ -69,18 +74,33 @@ class PrayerNotifier extends StateNotifier<PrayerState?> {
     }
   }
 
+  void _triggerNotification(String name) {
+    if (!kIsWeb) return;
+    try {
+      final title = 'Waktu $name Telah Tiba';
+      final body = name == 'Imsak' 
+          ? 'Waktu Imsak telah masuk. Silakan bersiap-siap untuk berpuasa.'
+          : 'Waktunya menunaikan ibadah shalat $name untuk wilayah Anda.';
+      
+      js.context.callMethod('showLocalNotification', [title, body]);
+    } catch (_) {}
+  }
+
   void _updatePrayerState() {
     // 1. Get current latitude and longitude
     double latitude;
     double longitude;
 
     if (settings.locationMode == LocationMode.preset) {
-      final city = presetCities.firstWhere(
-        (c) => c.name == settings.selectedCity,
-        orElse: () => presetCities.first,
-      );
-      latitude = city.latitude;
-      longitude = city.longitude;
+      final hasPreset = presetCities.any((c) => c.name == settings.selectedCity);
+      if (hasPreset) {
+        final city = presetCities.firstWhere((c) => c.name == settings.selectedCity);
+        latitude = city.latitude;
+        longitude = city.longitude;
+      } else {
+        latitude = settings.customLatitude;
+        longitude = settings.customLongitude;
+      }
     } else if (settings.locationMode == LocationMode.gps) {
       latitude = settings.gpsLatitude ?? settings.customLatitude;
       longitude = settings.gpsLongitude ?? settings.customLongitude;
@@ -158,6 +178,33 @@ class PrayerNotifier extends StateNotifier<PrayerState?> {
     final minutes = (timeRemaining.inMinutes % 60).toString().padLeft(2, '0');
     final seconds = (timeRemaining.inSeconds % 60).toString().padLeft(2, '0');
     final formattedRemaining = '$hours:$minutes:$seconds';
+
+    // Check for notification triggers if enabled
+    if (settings.enableNotifications && kIsWeb) {
+      final nowFormatted = DateFormat('yyyy-MM-dd').format(now);
+      final currentHourMin = DateFormat('HH:mm').format(now);
+
+      final Map<String, DateTime> timesToCheck = {
+        'Imsak': imsakTime,
+        'Subuh': todayPrayers.fajr,
+        'Syuruq': todayPrayers.sunrise,
+        'Dzuhur': todayPrayers.dhuhr,
+        'Ashar': todayPrayers.asr,
+        'Maghrib': todayPrayers.maghrib,
+        'Isya': todayPrayers.isha,
+      };
+
+      for (final entry in timesToCheck.entries) {
+        final prayerTimeFormatted = DateFormat('HH:mm').format(entry.value);
+        if (currentHourMin == prayerTimeFormatted) {
+          final notifyKey = '${nowFormatted}_${entry.key}';
+          if (_lastNotifiedTimeKey != notifyKey) {
+            _lastNotifiedTimeKey = notifyKey;
+            _triggerNotification(entry.key);
+          }
+        }
+      }
+    }
 
     state = PrayerState(
       todayPrayers: todayPrayers,

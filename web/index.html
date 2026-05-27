@@ -103,6 +103,63 @@
       50% { opacity: 1.0; }
     }
   </style>
+  <script>
+    // JS helpers for PWA offline notifications and wake lock
+    window.requestNotificationPermission = async function() {
+      if (!('Notification' in window)) {
+        console.log('Notification API not supported');
+        return 'unsupported';
+      }
+      return await Notification.requestPermission();
+    };
+
+    window.showLocalNotification = function(title, body) {
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+      try {
+        navigator.serviceWorker.ready.then((registration) => {
+          registration.showNotification(title, {
+            body: body,
+            icon: 'icons/Icon-192.png',
+            badge: 'icons/Icon-192.png',
+            vibrate: [200, 100, 200]
+          });
+        });
+      } catch (e) {
+        new Notification(title, { body: body, icon: 'icons/Icon-192.png' });
+      }
+    };
+
+    let wakeLockSentinel = null;
+
+    window.requestScreenWakeLock = async function() {
+      if (!('wakeLock' in navigator)) {
+        console.log('Wake Lock API not supported');
+        return false;
+      }
+      try {
+        wakeLockSentinel = await navigator.wakeLock.request('screen');
+        console.log('Screen Wake Lock active');
+        return true;
+      } catch (err) {
+        console.error('Wake Lock request failed:', err);
+        return false;
+      }
+    };
+
+    window.releaseScreenWakeLock = async function() {
+      if (wakeLockSentinel !== null) {
+        await wakeLockSentinel.release();
+        wakeLockSentinel = null;
+        console.log('Screen Wake Lock released');
+        return true;
+      }
+      return false;
+    };
+
+    window.isScreenWakeLockActive = function() {
+      return wakeLockSentinel !== null;
+    };
+  </script>
 </head>
 <body>
   <!-- Loading Splash Screen UI -->
@@ -112,6 +169,6 @@
     <div class="loading-subtitle">Sholat & Hilal Sighting</div>
   </div>
 
-  <script src="flutter_bootstrap.js" async></script>
+  <script src="flutter_bootstrap.js?v=1779917455430" async></script>
 </body>
 </html>

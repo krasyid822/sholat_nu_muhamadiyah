@@ -6,6 +6,7 @@ import 'package:adhan/adhan.dart';
 import '../providers/prayer_provider.dart';
 import '../providers/settings_provider.dart';
 import '../models/app_settings.dart';
+import '../utils/hijri_converter.dart';
 
 class DashboardTab extends ConsumerWidget {
   const DashboardTab({super.key});
@@ -74,11 +75,9 @@ class DashboardTab extends ConsumerWidget {
       formattedDate = DateFormat('EEEE, d MMMM yyyy').format(now);
     }
 
-    // Rough Hijri calculation (approximation for visual purposes)
-    // In a real app, this would use a complex library, but here we can compute an elegant estimate 
-    // and note that it's based on MABIMS/KHGT settings.
-    final hijriDay = (now.day + 1) % 30; // Just a demo estimate
-    final String hijriString = '$hijriDay Dzulqadah 1447 H';
+    // Precise Hijri calculation using the Tabular Islamic Calendar with Fiqih settings & offset
+    final hijriDate = HijriConverter.fromGregorian(now, settings.calcMethod, settings.hijriOffset, settings.isbatDateStr);
+    final String hijriString = hijriDate.formatted;
 
     final List<Map<String, dynamic>> prayerItems = [
       {'prayer': 'imsak', 'name': 'Imsak', 'time': prayerState.imsakTime, 'icon': Icons.restaurant_outlined},
@@ -230,17 +229,20 @@ class DashboardTab extends ConsumerWidget {
                         settings.locationMode == LocationMode.preset
                             ? settings.selectedCity
                             : settings.locationMode == LocationMode.gps
-                                ? (settings.gpsLatitude != null
-                                    ? 'GPS (${settings.gpsLatitude!.toStringAsFixed(2)}, ${settings.gpsLongitude!.toStringAsFixed(2)})'
-                                    : 'Deteksi GPS...')
-                                : 'Kustom (${settings.customLatitude.toStringAsFixed(2)}, ${settings.customLongitude.toStringAsFixed(2)})',
+                                ? (settings.gpsLocationName ?? (settings.gpsLatitude != null ? 'Auto GPS' : 'Deteksi GPS...'))
+                                : 'Kustom Koordinat',
                         style: GoogleFonts.plusJakartaSans(
                           color: Colors.white.withValues(alpha: 0.7),
-                          fontSize: 14,
+                          fontSize: 13,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                      const SizedBox(width: 12),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
                       Icon(
                         Icons.access_time_outlined,
                         size: 16,
@@ -251,7 +253,7 @@ class DashboardTab extends ConsumerWidget {
                         'Next: ${timeFormatter.format(prayerState.nextPrayerTime)} WIB',
                         style: GoogleFonts.plusJakartaSans(
                           color: Colors.white.withValues(alpha: 0.7),
-                          fontSize: 14,
+                          fontSize: 13,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -444,15 +446,36 @@ class DashboardTab extends ConsumerWidget {
                       const Spacer(),
 
                       // Time
-                      Text(
-                        timeFormatter.format(prayerTime),
-                        style: GoogleFonts.outfit(
-                          color: isImsak
-                              ? const Color(0xFFE6C575)
-                              : isCurrent ? const Color(0xFFD4AF37) : Colors.white,
-                          fontSize: isImsak ? 16 : 18,
-                          fontWeight: isCurrent ? FontWeight.bold : FontWeight.w600,
-                        ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            timeFormatter.format(prayerTime),
+                            style: GoogleFonts.outfit(
+                              color: isImsak
+                                  ? const Color(0xFFE6C575)
+                                  : isCurrent ? const Color(0xFFD4AF37) : Colors.white,
+                              fontSize: isImsak ? 16 : 18,
+                              fontWeight: isCurrent ? FontWeight.bold : FontWeight.w600,
+                            ),
+                          ),
+                          // Distance preview
+                          Text(
+                            (() {
+                              final diff = prayerTime.difference(now);
+                              if (diff.isNegative) {
+                                final d = diff.abs();
+                                return '-${d.inHours}h ${d.inMinutes % 60}m';
+                              } else {
+                                return '+${diff.inHours}h ${diff.inMinutes % 60}m';
+                              }
+                            })(),
+                            style: GoogleFonts.plusJakartaSans(
+                              color: Colors.white70,
+                              fontSize: 10,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

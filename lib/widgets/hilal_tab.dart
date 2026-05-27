@@ -1,30 +1,108 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
+import 'dart:math' as math;
+import '../providers/settings_provider.dart';
+import '../models/app_settings.dart';
+import '../utils/hijri_converter.dart';
+import '../data/cities.dart';
 
-class HilalTab extends StatefulWidget {
+class HilalTab extends ConsumerStatefulWidget {
   const HilalTab({super.key});
 
   @override
-  State<HilalTab> createState() => _HilalTabState();
+  ConsumerState<HilalTab> createState() => _HilalTabState();
 }
 
-class _HilalTabState extends State<HilalTab> {
-  double _altitude = 3.5;   // Default: meets MABIMS, fails KHGT
-  double _elongation = 6.8; // Default: meets MABIMS, fails KHGT
+class _HilalTabState extends ConsumerState<HilalTab> {
+  bool _firstRun = true;
+  DateTime? _selectedDate;
+  double _simAltitude = 3.5;
+  double _simElongation = 6.8;
+
+  // Calculate moon parameters for selected date and update the state
+  void _updateParametersForDate(DateTime date, AppSettings settings) {
+    double latitude;
+
+    if (settings.locationMode == LocationMode.preset) {
+      final hasPreset = presetCities.any((c) => c.name == settings.selectedCity);
+      if (hasPreset) {
+        final city = presetCities.firstWhere((c) => c.name == settings.selectedCity);
+        latitude = city.latitude;
+      } else {
+        latitude = settings.customLatitude;
+      }
+    } else if (settings.locationMode == LocationMode.gps) {
+      latitude = settings.gpsLatitude ?? settings.customLatitude;
+    } else {
+      latitude = settings.customLatitude;
+    }
+
+    final double age = HijriConverter.getMoonAge(date);
+    
+    // Elongation calculation
+    double elongationVal = (age / 29.530588853) * 360.0;
+    if (elongationVal > 180) elongationVal = 360.0 - elongationVal;
+    
+    // Altitude at sunset based on moon age and latitude
+    double latitudeRad = latitude * math.pi / 180.0;
+    double latFactor = math.cos(latitudeRad).abs();
+    double altitudeVal;
+    
+    if (age <= 14.765) {
+      if (age < 3.0) {
+        altitudeVal = age * 4.0 * latFactor;
+      } else {
+        altitudeVal = (12.0 + (age - 3.0) * 0.5) * latFactor;
+      }
+    } else {
+      double ageDiff = 29.530588853 - age;
+      if (ageDiff < 3.0) {
+        altitudeVal = -ageDiff * 4.0 * latFactor;
+      } else {
+        altitudeVal = -(12.0 + (ageDiff - 3.0) * 0.5) * latFactor;
+      }
+    }
+
+    // Adapt to slider boundaries
+    if (altitudeVal > 15.0) altitudeVal = 15.0;
+    if (altitudeVal < -10.0) altitudeVal = -10.0;
+    if (elongationVal > 20.0) elongationVal = 20.0;
+    if (elongationVal < 0.0) elongationVal = 0.0;
+
+    _simAltitude = altitudeVal;
+    _simElongation = elongationVal;
+  }
 
   @override
   Widget build(BuildContext context) {
-    // 1. Check Kemenag (MABIMS) Criteria: Tinggi >= 3.0, Elongasi >= 6.4
-    final meetsMabims = _altitude >= 3.0 && _elongation >= 6.4;
+    final settings = ref.watch(settingsProvider);
+    final now = DateTime.now();
 
-    // 2. Check Muhammadiyah (KHGT) Criteria: Tinggi >= 5.0, Elongasi >= 8.0
-    final meetsKhgt = _altitude >= 5.0 && _elongation >= 8.0;
+    if (_firstRun) {
+      _firstRun = false;
+      _selectedDate = now;
+      _updateParametersForDate(_selectedDate!, settings);
+    }
 
-    // Calculations for the visual crescent
-    // Altitude slider affects the 'bottom' alignment of the moon (higher altitude -> moon moves up)
-    final double moonBottomOffset = 40 + (_altitude * 12);
-    // Elongation affects crescent thickness (greater elongation -> thicker crescent)
-    final double moonMaskOffset = 35 - (_elongation * 2.2);
+    // Determine current location parameters for display
+    String locationName;
+    if (settings.locationMode == LocationMode.preset) {
+      locationName = 'Kab/Kota: ${settings.selectedCity}';
+    } else if (settings.locationMode == LocationMode.gps) {
+      locationName = settings.gpsLocationName ?? 'Lokasi GPS';
+    } else {
+      locationName = 'Kustom Koordinat';
+    }
+
+    final double age = HijriConverter.getMoonAge(_selectedDate ?? now);
+    final meetsMabims = _simAltitude >= 3.0 && _simElongation >= 6.4;
+    final meetsKhgt = _simAltitude >= 5.0 && _simElongation >= 8.0;
+
+    // Calculations for the visual crescent representation
+    final double moonBottomOffset = 40 + (_simAltitude * 12);
+    final double moonMaskOffset = 35 - (_simElongation * 2.2);
 
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
@@ -35,7 +113,7 @@ class _HilalTabState extends State<HilalTab> {
           children: [
             // Title & Concept
             Text(
-              'Simulator Visibilitas Hilal',
+              'Pelacak & Simulator Hilal',
               style: GoogleFonts.plusJakartaSans(
                 color: Colors.white,
                 fontSize: 20,
@@ -44,7 +122,7 @@ class _HilalTabState extends State<HilalTab> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Simulasikan parameter hilal pada akhir tanggal 29 untuk menentukan awal bulan Hijriah.',
+              'Pilih tanggal untuk memuat posisi hilal asli, lalu gunakan slider jika ingin melakukan simulasi kustom.',
               style: GoogleFonts.plusJakartaSans(
                 color: Colors.white60,
                 fontSize: 13,
@@ -52,6 +130,127 @@ class _HilalTabState extends State<HilalTab> {
               ),
             ),
             const SizedBox(height: 20),
+
+            // 📅 Date Selector Card (Premium Glassmorphism)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF0C3C2C).withValues(alpha: 0.6),
+                    const Color(0xFF051C15).withValues(alpha: 0.8),
+                  ],
+                ),
+                border: Border.all(
+                  color: const Color(0xFFD4AF37).withValues(alpha: 0.2),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Selected Date Label
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'TANGGAL PEMANTAUAN',
+                          style: GoogleFonts.plusJakartaSans(
+                            color: Colors.white38,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.0,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _selectedDate != null
+                              ? DateFormat('EEEE, d MMMM yyyy', 'id_ID').format(_selectedDate!)
+                              : '',
+                          style: GoogleFonts.plusJakartaSans(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  
+                  // Action Buttons
+                  Row(
+                    children: [
+                      // Reset to Today
+                      IconButton(
+                        onPressed: () {
+                          setState(() {
+                            _selectedDate = DateTime.now();
+                            _updateParametersForDate(_selectedDate!, settings);
+                          });
+                        },
+                        icon: const Icon(Icons.today, color: Color(0xFFD4AF37), size: 20),
+                        tooltip: 'Kembali ke Hari Ini',
+                      ),
+                      const SizedBox(width: 4),
+                      // Date Picker Button
+                      ElevatedButton.icon(
+                        onPressed: () async {
+                          final DateTime? picked = await showDatePicker(
+                            context: context,
+                            initialDate: _selectedDate ?? now,
+                            firstDate: DateTime(2000),
+                            lastDate: DateTime(2100),
+                            builder: (context, child) {
+                              return Theme(
+                                data: Theme.of(context).copyWith(
+                                  colorScheme: const ColorScheme.dark(
+                                    primary: Color(0xFFD4AF37), // gold
+                                    onPrimary: Color(0xFF051C15), // deep emerald
+                                    surface: Color(0xFF0C3C2C),
+                                    onSurface: Colors.white,
+                                  ),
+                                  dialogTheme: const DialogThemeData(
+                                    backgroundColor: Color(0xFF051C15),
+                                  ),
+                                ),
+                                child: child!,
+                              );
+                            },
+                          );
+                          if (picked != null && picked != _selectedDate) {
+                            setState(() {
+                              _selectedDate = picked;
+                              _updateParametersForDate(_selectedDate!, settings);
+                            });
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFD4AF37).withValues(alpha: 0.15),
+                          foregroundColor: const Color(0xFFE6C575),
+                          side: const BorderSide(color: Color(0xFFD4AF37), width: 1),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        icon: const Icon(Icons.calendar_month, size: 14),
+                        label: Text(
+                          'Pilih Kalender',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
 
             // Twilight Sky Canvas with Dynamic Moon
             Container(
@@ -161,7 +360,7 @@ class _HilalTabState extends State<HilalTab> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          'Tinggi: ${_altitude.toStringAsFixed(1)}°  |  Elongasi: ${_elongation.toStringAsFixed(1)}°',
+                          'Tinggi: ${_simAltitude.toStringAsFixed(1)}°  |  Elongasi: ${_simElongation.toStringAsFixed(1)}°',
                           style: GoogleFonts.outfit(
                             color: Colors.white,
                             fontSize: 12,
@@ -176,7 +375,7 @@ class _HilalTabState extends State<HilalTab> {
             ),
             const SizedBox(height: 20),
 
-            // Controls (Altitude and Elongation Sliders)
+            // Controls and Real-time Moon Details Combined Card
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -185,75 +384,132 @@ class _HilalTabState extends State<HilalTab> {
                 border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
               ),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Location metadata header
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.location_on_outlined, color: Color(0xFFD4AF37), size: 14),
+                          const SizedBox(width: 4),
+                          Text(
+                            locationName,
+                            style: GoogleFonts.plusJakartaSans(
+                              color: Colors.white70,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        _selectedDate != null ? DateFormat('dd/MM/yyyy').format(_selectedDate!) : '',
+                        style: GoogleFonts.outfit(
+                          color: const Color(0xFFD4AF37),
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  
+                  // Moon age & phase info boxes
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildMoonDataBox(
+                          'Estimasi Umur Bulan',
+                          '${age.toStringAsFixed(2)} Hari',
+                          _getMoonPhaseName(age),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _buildMoonDataBox(
+                          'Status Ufuk Barat',
+                          _simAltitude > 0 ? 'DI ATAS UFUK' : 'DI BAWAH UFUK',
+                          _simAltitude > 0 ? 'Potensi Terlihat' : 'Tidak Terlihat',
+                          valueColor: _simAltitude > 0 ? const Color(0xFF81C784) : Colors.redAccent,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Divider(color: Colors.white.withValues(alpha: 0.05), height: 1),
+                  const SizedBox(height: 16),
+
                   // Altitude Slider
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'Tinggi Hilal',
+                        'Simulasi Tinggi Hilal',
                         style: GoogleFonts.plusJakartaSans(
                           color: Colors.white70,
-                          fontSize: 14,
+                          fontSize: 13,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                       Text(
-                        '${_altitude.toStringAsFixed(1)}°',
+                        '${_simAltitude.toStringAsFixed(2)}°',
                         style: GoogleFonts.outfit(
                           color: const Color(0xFFD4AF37),
-                          fontSize: 16,
+                          fontSize: 15,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                     ],
                   ),
                   Slider(
-                    value: _altitude,
-                    min: 0.0,
-                    max: 10.0,
-                    divisions: 100,
+                    value: _simAltitude,
+                    min: -10.0,
+                    max: 15.0,
+                    divisions: 250,
                     activeColor: const Color(0xFFD4AF37),
                     inactiveColor: Colors.white12,
                     onChanged: (val) {
                       setState(() {
-                        _altitude = val;
+                        _simAltitude = val;
                       });
                     },
                   ),
                   const SizedBox(height: 10),
+
                   // Elongation Slider
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'Elongasi Hilal',
+                        'Simulasi Elongasi Hilal',
                         style: GoogleFonts.plusJakartaSans(
                           color: Colors.white70,
-                          fontSize: 14,
+                          fontSize: 13,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                       Text(
-                        '${_elongation.toStringAsFixed(1)}°',
+                        '${_simElongation.toStringAsFixed(2)}°',
                         style: GoogleFonts.outfit(
                           color: const Color(0xFFD4AF37),
-                          fontSize: 16,
+                          fontSize: 15,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                     ],
                   ),
                   Slider(
-                    value: _elongation,
+                    value: _simElongation,
                     min: 0.0,
-                    max: 12.0,
-                    divisions: 120,
+                    max: 20.0,
+                    divisions: 200,
                     activeColor: const Color(0xFFD4AF37),
                     inactiveColor: Colors.white12,
                     onChanged: (val) {
                       setState(() {
-                        _elongation = val;
+                        _simElongation = val;
                       });
                     },
                   ),
@@ -269,7 +525,7 @@ class _HilalTabState extends State<HilalTab> {
                 Expanded(
                   child: Container(
                     padding: const EdgeInsets.all(16),
-                    height: 160,
+                    height: 165,
                     decoration: BoxDecoration(
                       color: meetsMabims 
                           ? const Color(0xFF0F5A3E).withValues(alpha: 0.15)
@@ -312,8 +568,8 @@ class _HilalTabState extends State<HilalTab> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _buildReqItem('Tinggi ≥ 3°', _altitude >= 3.0),
-                            _buildReqItem('Elongasi ≥ 6.4°', _elongation >= 6.4),
+                            _buildReqItem('Tinggi ≥ 3°', _simAltitude >= 3.0),
+                            _buildReqItem('Elongasi ≥ 6.4°', _simElongation >= 6.4),
                           ],
                         ),
                         // Decision badge
@@ -355,7 +611,7 @@ class _HilalTabState extends State<HilalTab> {
                 Expanded(
                   child: Container(
                     padding: const EdgeInsets.all(16),
-                    height: 160,
+                    height: 165,
                     decoration: BoxDecoration(
                       color: meetsKhgt 
                           ? const Color(0xFF1E3A5F).withValues(alpha: 0.15)
@@ -398,8 +654,8 @@ class _HilalTabState extends State<HilalTab> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _buildReqItem('Tinggi ≥ 5°', _altitude >= 5.0),
-                            _buildReqItem('Elongasi ≥ 8°', _elongation >= 8.0),
+                            _buildReqItem('Tinggi ≥ 5°', _simAltitude >= 5.0),
+                            _buildReqItem('Elongasi ≥ 8°', _simElongation >= 8.0),
                           ],
                         ),
                         // Decision badge
@@ -527,5 +783,61 @@ class _HilalTabState extends State<HilalTab> {
         ),
       ],
     );
+  }
+
+  Widget _buildMoonDataBox(String label, String value, String subtitle, {Color? valueColor}) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.02),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.04)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.plusJakartaSans(
+              color: Colors.white38,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: GoogleFonts.outfit(
+              color: valueColor ?? const Color(0xFFE6C575),
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            style: GoogleFonts.plusJakartaSans(
+              color: Colors.white54,
+              fontSize: 9,
+              fontWeight: FontWeight.w500,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getMoonPhaseName(double age) {
+    if (age < 1.0) return 'Bulan Baru (New Moon)';
+    if (age < 7.0) return 'Sabit Muda (Waxing Crescent)';
+    if (age < 8.0) return 'Kuartal Pertama';
+    if (age < 14.0) return 'Cembung Awal (Waxing Gibbous)';
+    if (age < 15.5) return 'Purnama (Full Moon)';
+    if (age < 22.0) return 'Cembung Akhir (Waning Gibbous)';
+    if (age < 23.0) return 'Kuartal Ketiga';
+    if (age < 28.5) return 'Sabit Tua (Waning Crescent)';
+    return 'Bulan Mati (Dark Moon)';
   }
 }

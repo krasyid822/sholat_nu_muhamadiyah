@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'widgets/dashboard_tab.dart';
+import 'widgets/calendar_tab.dart';
 import 'widgets/hilal_tab.dart';
 import 'widgets/settings_tab.dart';
 
@@ -53,6 +54,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   final List<Widget> _tabs = [
     const DashboardTab(),
+    const CalendarTab(),
     const HilalTab(),
     const SettingsTab(),
   ];
@@ -123,12 +125,17 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             BottomNavigationBarItem(
               icon: Icon(Icons.alarm_rounded),
               activeIcon: Icon(Icons.alarm_on_rounded),
-              label: 'Jadwal Sholat',
+              label: 'Jadwal',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.calendar_month_outlined),
+              activeIcon: Icon(Icons.calendar_month_rounded),
+              label: 'Kalender',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.visibility_outlined),
               activeIcon: Icon(Icons.visibility_rounded),
-              label: 'Hilal Sighting',
+              label: 'Hilal',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.settings_outlined),
