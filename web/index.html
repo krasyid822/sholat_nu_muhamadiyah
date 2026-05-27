@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="Jadwal sholat presisi tinggi Kemenag (NU) & Muhammadiyah serta simulator visibilitas hilal interaktif.">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Al-Waqt">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>Al-Waqt: Jadwal Sholat & Hilal (NU / Muhammadiyah)</title>
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Custom Premium Loading Splash Screen Styling -->
+  <style>
+    body {
+      background-color: #05120C !important;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      overflow: hidden;
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+    }
+    .loading-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .moon-spinner {
+      position: relative;
+      width: 70px;
+      height: 70px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 30% 30%, #FFE082 0%, #D4AF37 100%);
+      box-shadow: 0 0 20px rgba(212, 175, 55, 0.4);
+      animation: pulse 2s infinite ease-in-out;
+    }
+    .moon-spinner::after {
+      content: '';
+      position: absolute;
+      top: -1px;
+      right: -12px;
+      width: 70px;
+      height: 70px;
+      border-radius: 50%;
+      background-color: #05120C;
+      transition: 0.5s;
+    }
+    .loading-title {
+      color: #D4AF37;
+      margin-top: 30px;
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: 5px;
+      text-shadow: 0 0 10px rgba(212, 175, 55, 0.3);
+      animation: text-pulse 2s infinite ease-in-out;
+    }
+    .loading-subtitle {
+      color: #81C784;
+      margin-top: 10px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      opacity: 0.8;
+    }
+    @keyframes pulse {
+      0%, 100% {
+        transform: scale(0.92);
+        box-shadow: 0 0 15px rgba(212, 175, 55, 0.3);
+      }
+      50% {
+        transform: scale(1.05);
+        box-shadow: 0 0 30px rgba(212, 175, 55, 0.7);
+      }
+    }
+    @keyframes text-pulse {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 1.0; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Loading Splash Screen UI -->
+  <div class="loading-container" id="loading-indicator">
+    <div class="moon-spinner"></div>
+    <div class="loading-title">AL-WAQT</div>
+    <div class="loading-subtitle">Sholat & Hilal Sighting</div>
+  </div>
+
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
