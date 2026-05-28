@@ -609,7 +609,7 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
 
   // Circular rotating Compass Dial
   Widget _buildCompassHud(double width, double relativeQibla, bool isAligned) {
-    final double compassSize = math.min(width * 0.72, 320.0);
+    final double compassSize = math.min(width * 0.82, 360.0);
 
     return SingleChildScrollView(
       child: Column(
@@ -637,17 +637,63 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
                 ),
               ),
               
-              // Rotating Compass Plate
+              // Rotating Compass Plate with Ka'bah icon at qibla corner
               Transform.rotate(
                 angle: -_currentHeading * math.pi / 180.0,
                 child: SizedBox(
                   width: compassSize,
                   height: compassSize,
-                  child: CustomPaint(
-                    painter: CompassDialPainter(
-                      qiblaBearing: _qiblaBearing,
-                      isAligned: isAligned,
-                    ),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      CustomPaint(
+                        size: Size(compassSize, compassSize),
+                        painter: CompassDialPainter(
+                          qiblaBearing: _qiblaBearing,
+                          isAligned: isAligned,
+                        ),
+                      ),
+                      Builder(builder: (context) {
+                        final double qiblaRad = (_qiblaBearing - 90.0) * math.pi / 180.0;
+                        final double iconDist = compassSize / 2 - 35;
+                        return Transform.translate(
+                          offset: Offset(
+                            iconDist * math.cos(qiblaRad),
+                            iconDist * math.sin(qiblaRad),
+                          ),
+                          child: Transform.rotate(
+                            angle: _currentHeading * math.pi / 180.0,
+                            child: AnimatedScale(
+                              duration: const Duration(milliseconds: 300),
+                              scale: isAligned ? 1.2 : 1.0,
+                              child: Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF05120C),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: const Color(0xFFD4AF37),
+                                    width: 2.5,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFFD4AF37).withOpacity(isAligned ? 0.6 : 0.3),
+                                      blurRadius: 15,
+                                      spreadRadius: 2,
+                                    )
+                                  ],
+                                ),
+                                child: const Icon(
+                                  Icons.mosque,
+                                  size: 22,
+                                  color: Color(0xFFD4AF37),
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+                    ],
                   ),
                 ),
               ),
@@ -683,34 +729,16 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
                 ),
               ),
 
-              // Central Dome Mosque Icon
-              Positioned(
-                child: Center(
-                  child: AnimatedScale(
-                    duration: const Duration(milliseconds: 300),
-                    scale: isAligned ? 1.25 : 1.0,
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF05120C),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: isAligned ? const Color(0xFFD4AF37) : const Color(0xFFD4AF37).withOpacity(0.2),
-                          width: 2,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: isAligned ? const Color(0xFFD4AF37).withOpacity(0.4) : Colors.black45,
-                            blurRadius: 15,
-                          )
-                        ],
-                      ),
-                      child: Icon(
-                        Icons.mosque,
-                        size: 32,
-                        color: isAligned ? const Color(0xFFD4AF37) : const Color(0xFFD4AF37).withOpacity(0.7),
-                      ),
-                    ),
+              // Center crosshair dot
+              Container(
+                width: 14,
+                height: 14,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0xFF05120C),
+                  border: Border.all(
+                    color: isAligned ? const Color(0xFFD4AF37) : const Color(0xFFD4AF37).withOpacity(0.5),
+                    width: 2,
                   ),
                 ),
               ),
@@ -1072,31 +1100,64 @@ class CompassDialPainter extends CustomPainter {
 
     // 5. Draw the Dynamic Qibla Arrow Pointer pointing to Mecca
     final double qiblaRad = (qiblaBearing - 90.0) * math.pi / 180.0;
-    
+
     final Offset meccaPos = Offset(
-      center.dx + (innerRadius - 35) * math.cos(qiblaRad),
-      center.dy + (innerRadius - 35) * math.sin(qiblaRad),
+      center.dx + (innerRadius - 50) * math.cos(qiblaRad),
+      center.dy + (innerRadius - 50) * math.sin(qiblaRad),
     );
 
+    // Glow effect behind the needle for emphasis
+    final glowPaint = Paint()
+      ..color = (isAligned ? const Color(0xFFD4AF37) : const Color(0xFF81C784)).withOpacity(0.25)
+      ..strokeWidth = 10.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+    canvas.drawLine(center, meccaPos, glowPaint);
+
+    // Main needle - thicker and more prominent
     final needlePaint = Paint()
       ..color = isAligned ? const Color(0xFFD4AF37) : const Color(0xFF81C784)
-      ..strokeWidth = 3.5
+      ..strokeWidth = 4.5
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
-
     canvas.drawLine(center, meccaPos, needlePaint);
 
-    final domePath = Path();
-    domePath.moveTo(meccaPos.dx, meccaPos.dy - 12);
-    domePath.quadraticBezierTo(meccaPos.dx - 8, meccaPos.dy, meccaPos.dx, meccaPos.dy + 4);
-    domePath.quadraticBezierTo(meccaPos.dx + 8, meccaPos.dy, meccaPos.dx, meccaPos.dy - 12);
-    domePath.close();
-
+    // Arrowhead at the needle tip
+    final double arrowSize = 14.0;
+    final Offset arrowLeft = Offset(
+      meccaPos.dx - arrowSize * math.cos(qiblaRad - 0.45),
+      meccaPos.dy - arrowSize * math.sin(qiblaRad - 0.45),
+    );
+    final Offset arrowRight = Offset(
+      meccaPos.dx - arrowSize * math.cos(qiblaRad + 0.45),
+      meccaPos.dy - arrowSize * math.sin(qiblaRad + 0.45),
+    );
+    final arrowPath = Path()
+      ..moveTo(meccaPos.dx, meccaPos.dy)
+      ..lineTo(arrowLeft.dx, arrowLeft.dy)
+      ..lineTo(arrowRight.dx, arrowRight.dy)
+      ..close();
     canvas.drawPath(
-      domePath, 
+      arrowPath,
       Paint()
-        ..color = const Color(0xFFD4AF37)
-        ..style = PaintingStyle.fill
+        ..color = isAligned ? const Color(0xFFD4AF37) : const Color(0xFF81C784)
+        ..style = PaintingStyle.fill,
+    );
+
+    // Dim opposite line for compass balance
+    final Offset oppositePos = Offset(
+      center.dx - (innerRadius - 60) * math.cos(qiblaRad),
+      center.dy - (innerRadius - 60) * math.sin(qiblaRad),
+    );
+    canvas.drawLine(
+      center,
+      oppositePos,
+      Paint()
+        ..color = Colors.white.withOpacity(0.08)
+        ..strokeWidth = 2.5
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round,
     );
   }
 
