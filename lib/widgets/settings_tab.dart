@@ -6,6 +6,8 @@ import '../providers/settings_provider.dart';
 import '../models/app_settings.dart';
 import '../data/cities.dart';
 import '../utils/hijri_converter.dart';
+import '../config/app_version.dart';
+import 'dev_menu.dart';
 
 class SettingsTab extends ConsumerStatefulWidget {
   const SettingsTab({super.key});
@@ -326,8 +328,7 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                         ),
                         if (settings.isbatDateStr != null) ...[
                 Text(
-                  'Tanggal tersebut bertepatan dengan: ' +
-                  HijriConverter.fromGregorian(DateTime.parse(settings.isbatDateStr!), settings.calcMethod).formatted,
+                  'Tanggal tersebut bertepatan dengan: ${HijriConverter.fromGregorian(DateTime.parse(settings.isbatDateStr!), settings.calcMethod).formatted}',
                   style: GoogleFonts.plusJakartaSans(color: Colors.white70, fontSize: 12),
                 ),
                 const SizedBox(height: 8),
@@ -1081,10 +1082,102 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                   ],
                 ),
               ),
+              const SizedBox(height: 32),
+              OutlinedButton.icon(
+                onPressed: _showDeveloperMenu,
+                icon: const Icon(Icons.developer_mode_rounded, size: 18),
+                label: Text(
+                  'Buka Dev Menu',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFFD4AF37),
+                  side: BorderSide(
+                    color: const Color(0xFFD4AF37).withValues(alpha: 0.35),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
+                child: Center(
+                  child: Text(
+                    'Al-Waqt v$kAppVersion',
+                    style: GoogleFonts.plusJakartaSans(
+                      color: Colors.white24,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  void _showDeveloperMenu() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF0C1913),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SizedBox(
+          height: MediaQuery.of(context).size.height * 0.85,
+          child: Column(
+            children: [
+              // Pull Bar
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 12),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              // Close row
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Menu Pengembang',
+                      style: GoogleFonts.outfit(
+                        color: const Color(0xFFD4AF37),
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white70),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(color: Colors.white12, height: 1),
+              const Expanded(
+                child: DevMenu(),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -1108,12 +1201,14 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
               children: [
                 Icon(icon, color: const Color(0xFFD4AF37), size: 20),
                 const SizedBox(width: 10),
-                Text(
-                  title,
-                  style: GoogleFonts.plusJakartaSans(
-                    color: Colors.white,
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
+                Expanded(
+                  child: Text(
+                    title,
+                    style: GoogleFonts.plusJakartaSans(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],

@@ -1,15 +1,22 @@
 // ignore_for_file: deprecated_member_use, avoid_web_libraries_in_flutter
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/widgets.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'dart:js' as js;
+import 'package:firebase_messaging/firebase_messaging.dart';
 import '../models/app_settings.dart';
+import '../data/cities.dart';
+import '../config/app_env.dart';
 
 class SettingsNotifier extends StateNotifier<AppSettings> {
+  Timer? _gpsAutoUpdateTimer;
+
   SettingsNotifier() : super(AppSettings.initial()) {
     _loadSettings();
   }
@@ -80,6 +87,20 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
           } catch (_) {}
         });
       }
+
+      // Sync FCM topics on load
+      if (kIsWeb) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _syncFcmTopics();
+        });
+      }
+
+      // If location mode is GPS, automatically update GPS location in the background on startup
+      if (state.locationMode == LocationMode.gps) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _autoUpdateGpsLocation();
+        });
+      }
     } catch (e) {
       // Keep initial defaults on error
     }
@@ -89,18 +110,27 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
     state = state.copyWith(calcMethod: method);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_keyCalcMethod, method.index);
+    await _syncFcmTopics();
   }
 
   Future<void> setLocationMode(LocationMode mode) async {
     state = state.copyWith(locationMode: mode);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_keyLocationMode, mode.index);
+    await _syncFcmTopics();
+
+    if (mode == LocationMode.gps) {
+      _autoUpdateGpsLocation();
+    } else {
+      _gpsAutoUpdateTimer?.cancel();
+    }
   }
 
   Future<void> setSelectedCity(String city) async {
     state = state.copyWith(selectedCity: city);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keySelectedCity, city);
+    await _syncFcmTopics();
   }
 
   Future<void> setCustomCoordinates(double lat, double lng) async {
@@ -108,6 +138,7 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_keyCustomLat, lat);
     await prefs.setDouble(_keyCustomLng, lng);
+    await _syncFcmTopics();
   }
 
   Future<void> setGpsData({
@@ -127,42 +158,69 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
     await prefs.setDouble(_keyGpsLng, lng);
     await prefs.setDouble(_keyGpsAlt, alt);
     await prefs.setString(_keyGpsLocName, locName);
+    await _syncFcmTopics();
   }
 
   Future<void> fetchGpsLocation() async {
-    bool serviceEnabled;
-    LocationPermission permission;
+    double latitude;
+    double longitude;
+    double altitude = 0.0;
 
-    // Test if location services are enabled.
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      throw 'Layanan GPS dinonaktifkan di perangkat Anda.';
-    }
-
-    permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        throw 'Izin akses lokasi ditolak oleh pengguna.';
+    if (kIsWeb) {
+      try {
+        // Natively request and get position on web to bypass mobile-only permission checks that throw on desktop
+        final position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+          ),
+        ).timeout(const Duration(seconds: 10));
+        
+        latitude = position.latitude;
+        longitude = position.longitude;
+        altitude = position.altitude;
+      } catch (e) {
+        final errStr = e.toString();
+        if (errStr.contains('denied') || errStr.contains('Permission')) {
+          throw 'Izin lokasi ditolak. Aktifkan akses lokasi di pengaturan browser Anda.';
+        } else {
+          throw 'Gagal mendapatkan lokasi GPS: $errStr';
+        }
       }
-    }
-    
-    if (permission == LocationPermission.deniedForever) {
-      throw 'Izin lokasi diblokir permanen. Aktifkan lewat setelan browser/sistem.';
-    } 
+    } else {
+      // Mobile-native checks and updates
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw 'Layanan GPS dinonaktifkan di perangkat Anda.';
+      }
 
-    // Retrieve position with high-precision settings
-    final position = await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-      ),
-    );
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          throw 'Izin akses lokasi ditolak oleh pengguna.';
+        }
+      }
+      
+      if (permission == LocationPermission.deniedForever) {
+        throw 'Izin lokasi diblokir permanen. Aktifkan lewat setelan sistem.';
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
+      
+      latitude = position.latitude;
+      longitude = position.longitude;
+      altitude = position.altitude;
+    }
 
     // Call OpenStreetMap Nominatim reverse geocoding API to resolve the address name
     String addressName = 'Lokasi GPS';
     try {
       final url = Uri.parse(
-        'https://nominatim.openstreetmap.org/reverse?lat=${position.latitude}&lon=${position.longitude}&format=jsonv2&zoom=10'
+        'https://nominatim.openstreetmap.org/reverse?lat=$latitude&lon=$longitude&format=jsonv2&zoom=10'
       );
       final response = await http.get(
         url,
@@ -193,9 +251,9 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
     }
     
     await setGpsData(
-      lat: position.latitude,
-      lng: position.longitude,
-      alt: position.altitude,
+      lat: latitude,
+      lng: longitude,
+      alt: altitude,
       locName: addressName,
     );
   }
@@ -204,6 +262,7 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
     state = state.copyWith(useIhtiyati: value);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyUseIhtiyati, value);
+    await _syncFcmTopics();
   }
 
   Future<void> setDarkMode(bool value) async {
@@ -213,23 +272,35 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
   }
 
   Future<void> setEnableNotifications(bool value) async {
-    if (value && kIsWeb) {
-      try {
-        final permission = await js.context.callMethod('requestNotificationPermission');
-        if (permission != 'granted') {
-          // If denied, keep setting as false
-          state = state.copyWith(enableNotifications: false);
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setBool(_keyEnableNotifications, false);
-          return;
+    if (value) {
+      bool granted = false;
+      if (kIsWeb) {
+        try {
+          final permissionStatus = js.context['Notification']?['permission'];
+          if (permissionStatus == 'denied') {
+            throw 'Notification permission blocked';
+          }
+          final permission = await FirebaseMessaging.instance.requestPermission();
+          granted = permission.authorizationStatus == AuthorizationStatus.authorized;
+        } catch (_) {
+          granted = false;
         }
-      } catch (e) {
-        // Fallback on error
+      } else {
+        final status = await Permission.notification.request();
+        granted = status == PermissionStatus.granted;
+      }
+      if (!granted) {
+        state = state.copyWith(enableNotifications: false);
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool(_keyEnableNotifications, false);
+        await _syncFcmTopics();
+        return;
       }
     }
     state = state.copyWith(enableNotifications: value);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyEnableNotifications, value);
+    await _syncFcmTopics();
   }
 
   Future<void> setKeepScreenOn(bool value) async {
@@ -303,6 +374,7 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
     await prefs.setString(_keySelectedCity, cityName);
     await prefs.setDouble(_keyCustomLat, latitude);
     await prefs.setDouble(_keyCustomLng, longitude);
+    await _syncFcmTopics();
   }
 
   Future<List<Map<String, dynamic>>> searchOsmCities(String query) async {
@@ -348,6 +420,207 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
       }
     } catch (_) {}
     return [];
+  }
+
+  String getFcmTopic() {
+    double latitude;
+    double longitude;
+
+    if (state.locationMode == LocationMode.preset) {
+      final hasPreset = presetCities.any((c) => c.name == state.selectedCity);
+      if (hasPreset) {
+        final city = presetCities.firstWhere((c) => c.name == state.selectedCity);
+        latitude = city.latitude;
+        longitude = city.longitude;
+      } else {
+        latitude = state.customLatitude;
+        longitude = state.customLongitude;
+      }
+    } else if (state.locationMode == LocationMode.gps) {
+      latitude = state.gpsLatitude ?? state.customLatitude;
+      longitude = state.gpsLongitude ?? state.customLongitude;
+    } else {
+      latitude = state.customLatitude;
+      longitude = state.customLongitude;
+    }
+
+    // Round to 1 decimal place
+    final latRounded = (latitude * 10).round() / 10;
+    final lonRounded = (longitude * 10).round() / 10;
+
+    // Convert decimal to string with underscore instead of dot
+    final latStr = latRounded.abs().toStringAsFixed(1).replaceAll('.', '_');
+    final lonStr = lonRounded.abs().toStringAsFixed(1).replaceAll('.', '_');
+
+    final latSign = latRounded >= 0 ? 'pos' : 'neg';
+    final lonSign = lonRounded >= 0 ? 'pos' : 'neg';
+
+    final method = state.calcMethod == CalcMethod.kemenag ? 'kemenag' : 'muhammadiyah';
+    final ihtiyati = state.useIhtiyati ? 'yes' : 'no';
+
+    return 'adzan_lat_$latSign${latStr}_lon_$lonSign${lonStr}_${method}_$ihtiyati';
+  }
+
+  bool get _isOnline {
+    if (!kIsWeb) return true;
+    try {
+      return js.context['navigator']?['onLine'] as bool? ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<String?> _getFcmToken() {
+    return FirebaseMessaging.instance.getToken(
+      vapidKey: kIsWeb ? AppEnv.firebaseWebVapidKey : null,
+    );
+  }
+
+  Future<void> _syncFcmTopics() async {
+    if (!kIsWeb) return;
+    
+    // If completely offline, skip all FCM network topic sync operations
+    // to prevent Firebase Token requests from hanging indefinitely.
+    if (!_isOnline) {
+      return;
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final lastTopic = prefs.getString('last_subscribed_fcm_topic');
+
+      // If notifications are disabled in settings, we do NOT need a token to clear active_topics in Firestore REST!
+      if (!state.enableNotifications) {
+        if (lastTopic != null && lastTopic.isNotEmpty) {
+          try {
+            // Delete from Firestore directly (no token required)
+            final url = Uri.parse(
+              'https://firestore.googleapis.com/v1/projects/al-waqt-9cdb7/databases/(default)/documents/active_topics/$lastTopic'
+            );
+            await http.delete(url).timeout(const Duration(seconds: 3));
+
+            // Try to unsubscribe via FCM only if permission is granted
+            final permission = js.context['Notification']?['permission'];
+            if (permission == 'granted') {
+              final token = await _getFcmToken();
+              if (token != null && token.isNotEmpty) {
+                final unsubscribeUrl = Uri.parse(
+                  'https://us-central1-al-waqt-9cdb7.cloudfunctions.net/unsubscribeFromTopic'
+                );
+                await http.post(
+                  unsubscribeUrl,
+                  headers: {'Content-Type': 'application/json'},
+                  body: json.encode({'token': token, 'topic': lastTopic}),
+                ).timeout(const Duration(seconds: 5));
+              }
+            }
+          } catch (_) {}
+          await prefs.remove('last_subscribed_fcm_topic');
+        }
+        return;
+      }
+
+      // If notifications are enabled, check if browser permission is actually granted first.
+      // If it is blocked or not granted, safe fallback: toggle state to false and exit.
+      final permission = js.context['Notification']?['permission'];
+      if (permission != 'granted') {
+        state = state.copyWith(enableNotifications: false);
+        await prefs.setBool(_keyEnableNotifications, false);
+        return;
+      }
+
+      final token = await _getFcmToken();
+      final hasToken = token != null && token.isNotEmpty;
+      
+      // If we don't have an active token even though permission is granted, skip subscribing.
+      if (!hasToken) return;
+
+      // Compute new topic
+      final newTopic = getFcmTopic();
+
+      if (lastTopic == newTopic) {
+        // Already subscribed to correct topic, make sure registered in Firestore
+        try {
+          final url = Uri.parse(
+            'https://firestore.googleapis.com/v1/projects/al-waqt-9cdb7/databases/(default)/documents/active_topics/$newTopic'
+          );
+          await http.patch(url, body: json.encode({
+            'fields': {
+              'createdAt': {'timestampValue': DateTime.now().toUtc().toIso8601String()}
+            }
+          })).timeout(const Duration(seconds: 3));
+        } catch (_) {}
+        return;
+      }
+
+      // Different topic: clean up old one first
+      if (lastTopic != null && lastTopic.isNotEmpty) {
+        try {
+          final unsubscribeUrl = Uri.parse(
+            'https://us-central1-al-waqt-9cdb7.cloudfunctions.net/unsubscribeFromTopic'
+          );
+          await http.post(
+            unsubscribeUrl,
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({'token': token, 'topic': lastTopic}),
+          ).timeout(const Duration(seconds: 5));
+
+          final url = Uri.parse(
+            'https://firestore.googleapis.com/v1/projects/al-waqt-9cdb7/databases/(default)/documents/active_topics/$lastTopic'
+          );
+          await http.delete(url).timeout(const Duration(seconds: 3));
+        } catch (_) {}
+      }
+
+      // Subscribe to new one
+      try {
+        final subscribeUrl = Uri.parse(
+          'https://us-central1-al-waqt-9cdb7.cloudfunctions.net/subscribeToTopic'
+        );
+        await http.post(
+          subscribeUrl,
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({'token': token, 'topic': newTopic}),
+        ).timeout(const Duration(seconds: 5));
+
+        final url = Uri.parse(
+          'https://firestore.googleapis.com/v1/projects/al-waqt-9cdb7/databases/(default)/documents/active_topics/$newTopic'
+        );
+        await http.patch(url, body: json.encode({
+          'fields': {
+            'createdAt': {'timestampValue': DateTime.now().toUtc().toIso8601String()}
+          }
+        })).timeout(const Duration(seconds: 3));
+
+        await prefs.setString('last_subscribed_fcm_topic', newTopic);
+      } catch (_) {}
+    } catch (_) {}
+  }
+
+  Future<void> _autoUpdateGpsLocation() async {
+    _gpsAutoUpdateTimer?.cancel();
+
+    // Silently fetch GPS location immediately on call
+    try {
+      await fetchGpsLocation();
+    } catch (_) {}
+
+    // Set up a periodic background sync every 15 minutes to keep coordinates and prayer times fresh
+    _gpsAutoUpdateTimer = Timer.periodic(const Duration(minutes: 15), (timer) async {
+      if (state.locationMode == LocationMode.gps) {
+        try {
+          await fetchGpsLocation();
+        } catch (_) {}
+      } else {
+        timer.cancel();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _gpsAutoUpdateTimer?.cancel();
+    super.dispose();
   }
 }
 

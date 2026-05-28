@@ -2,21 +2,64 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+import 'config/app_env.dart';
 import 'widgets/dashboard_tab.dart';
 import 'widgets/calendar_tab.dart';
 import 'widgets/hilal_tab.dart';
 import 'widgets/settings_tab.dart';
+import 'widgets/qibla_tab.dart';
 
 void main() async {
   // Ensure Flutter engine and localizations are initialized
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('id_ID', null);
-  
+
+  // Initialize Firebase — required for FCM and all Firebase services
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  await _configureWebPushMessaging();
+
   runApp(
     const ProviderScope(
       child: MyApp(),
     ),
   );
+}
+
+Future<void> _configureWebPushMessaging() async {
+  if (!kIsWeb) return;
+
+  try {
+    final settings = await FirebaseMessaging.instance.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+
+    if (settings.authorizationStatus != AuthorizationStatus.authorized) {
+      return;
+    }
+
+    await FirebaseMessaging.instance.getToken(
+      vapidKey: AppEnv.firebaseWebVapidKey,
+    );
+
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      // Keep a foreground listener alive so web PWA receives data while open.
+      final notification = message.notification;
+      final title = notification?.title ?? 'Al-Waqt';
+      final body = notification?.body ?? 'Ada notifikasi baru.';
+      debugPrint('[FCM Foreground] $title - $body');
+    });
+  } catch (e) {
+    debugPrint('Web push setup failed: $e');
+  }
 }
 
 class MyApp extends StatelessWidget {
@@ -52,12 +95,15 @@ class MainNavigationScreen extends StatefulWidget {
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
 
-  final List<Widget> _tabs = [
-    const DashboardTab(),
-    const CalendarTab(),
-    const HilalTab(),
-    const SettingsTab(),
-  ];
+  List<Widget> _buildTabs() {
+    return const <Widget>[
+      DashboardTab(),
+      CalendarTab(),
+      HilalTab(),
+      QiblaTab(),
+      SettingsTab(),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -91,7 +137,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       ),
       body: AnimatedSwitcher(
         duration: const Duration(milliseconds: 300),
-        child: _tabs[_currentIndex],
+        child: _buildTabs()[_currentIndex],
       ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
@@ -121,30 +167,18 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               _currentIndex = index;
             });
           },
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.alarm_rounded),
-              activeIcon: Icon(Icons.alarm_on_rounded),
-              label: 'Jadwal',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.calendar_month_outlined),
-              activeIcon: Icon(Icons.calendar_month_rounded),
-              label: 'Kalender',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.visibility_outlined),
-              activeIcon: Icon(Icons.visibility_rounded),
-              label: 'Hilal',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.settings_outlined),
-              activeIcon: Icon(Icons.settings_rounded),
-              label: 'Pengaturan',
-            ),
-          ],
+          items: _buildNavItems(),
         ),
       ),
     );
+  }
+  List<BottomNavigationBarItem> _buildNavItems() {
+    return const <BottomNavigationBarItem>[
+      BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Dashboard'),
+      BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: 'Calendar'),
+      BottomNavigationBarItem(icon: Icon(Icons.nightlight_round), label: 'Hilal'),
+      BottomNavigationBarItem(icon: Icon(Icons.explore), label: 'Kiblat'),
+      BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
+    ];
   }
 }

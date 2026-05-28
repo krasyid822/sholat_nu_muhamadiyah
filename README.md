@@ -1,17 +1,29 @@
 # sholat_nu_muhamadiyah
 
-A new Flutter project.
+Flutter app jadwal sholat NU & Muhammadiyah.
 
-## Getting Started
+Catatan: Firebase Web API key tetap bisa terlihat di bundle web saat app dipublish. Lindungi dari sisi Firebase/Google Cloud dengan API key restrictions, authorized domains, dan Firebase Security Rules.
 
-This project is a starting point for a Flutter application.
+## Cara Deploy
+_(sebelumnya)_\
+Lakukan:
+```pwsh
+git push # trigger ada disini
+```
+Lalu:
+```pwsh
+flutter build web --release
+firebase deploy --only hosting
+firebase deploy --only functions
+```
+_(sekarang)_\
+cukup dengan
+```pwsh
+firebase deploy --only hosting
+```
 
-A few resources to get you started if this is your first Flutter project:
+## Catatan
+google adsense
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+sepertinya ada masalah di update gps mode offline, 
+ketika diupdate offline dia tidak mau update waktu sholat, perlu di run sekali online dulu baru bisa offline

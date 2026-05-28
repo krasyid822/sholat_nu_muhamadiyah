@@ -129,6 +129,23 @@
       }
     };
 
+    // Register Firebase Messaging service worker explicitly so web push
+    // can be delivered while app is in background/closed on mobile browser.
+    window.registerFirebaseMessagingSW = async function() {
+      if (!('serviceWorker' in navigator)) return false;
+      try {
+        const registration = await navigator.serviceWorker.register(
+          'firebase-messaging-sw.js',
+          { scope: '/' }
+        );
+        console.log('Firebase messaging service worker registered:', registration.scope);
+        return true;
+      } catch (error) {
+        console.error('Failed to register firebase-messaging-sw.js:', error);
+        return false;
+      }
+    };
+
     let wakeLockSentinel = null;
 
     window.requestScreenWakeLock = async function() {
@@ -159,6 +176,84 @@
     window.isScreenWakeLockActive = function() {
       return wakeLockSentinel !== null;
     };
+
+    // Qibla Compass Web API Integration
+    window.hasAbsoluteEvent = false;
+    window.qiblaHeading = null;
+    window.orientationPermissionGranted = false;
+
+    function handleOrientationAbsolute(event) {
+      window.hasAbsoluteEvent = true;
+      let heading = null;
+      // We do NOT strictly check event.absolute here because some modern browsers/devices
+      // omit it or report it as false even when firing the absolute event, but alpha is still absolute.
+      if (event.alpha !== null) {
+        // alpha increases counter-clockwise, compass heading increases clockwise.
+        heading = (360 - event.alpha) % 360;
+      } else if (event.webkitCompassHeading !== undefined && event.webkitCompassHeading !== null) {
+        heading = event.webkitCompassHeading;
+      }
+      if (heading !== null) {
+        window.qiblaHeading = heading;
+      }
+    }
+
+    function handleOrientation(event) {
+      let heading = null;
+      if (event.webkitCompassHeading !== undefined && event.webkitCompassHeading !== null) {
+        // iOS Safari uses webkitCompassHeading which is highly accurate and absolute
+        heading = event.webkitCompassHeading;
+      } else if (!window.hasAbsoluteEvent && event.alpha !== null) {
+        // Fallback standard alpha: if deviceorientationabsolute doesn't fire,
+        // we use deviceorientation alpha so the compass still moves dynamically.
+        heading = (360 - event.alpha) % 360;
+      }
+      if (heading !== null) {
+        window.qiblaHeading = heading;
+      }
+    }
+
+    window.startOrientationUpdates = async function() {
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        // iOS 13+ requires explicit user gesture permission
+        try {
+          const permissionState = await DeviceOrientationEvent.requestPermission();
+          if (permissionState === 'granted') {
+            window.orientationPermissionGranted = true;
+            window.addEventListener('deviceorientation', handleOrientation, true);
+            console.log('Compass updates started (iOS)');
+            return 'granted';
+          }
+          return 'denied';
+        } catch (err) {
+          console.error('Orientation permission error:', err);
+          return 'error';
+        }
+      } else {
+        // Android / Desktop do not require explicit permissions
+        window.orientationPermissionGranted = true;
+        window.hasAbsoluteEvent = false;
+        
+        // Register BOTH listeners. If deviceorientationabsolute works, handleOrientation
+        // will ignore its relative updates. If absolute is missing/buggy, relative fallback
+        // keeps the compass rotating rather than being completely frozen.
+        window.addEventListener('deviceorientationabsolute', handleOrientationAbsolute, true);
+        window.addEventListener('deviceorientation', handleOrientation, true);
+        
+        console.log('Compass updates started (Android/Desktop Dual-Listener)');
+        return 'granted';
+      }
+    };
+
+    window.stopOrientationUpdates = function() {
+      window.removeEventListener('deviceorientationabsolute', handleOrientationAbsolute, true);
+      window.removeEventListener('deviceorientation', handleOrientation, true);
+      console.log('Compass updates stopped');
+      return true;
+    };
+
+    // Fire and forget; keeps web push infrastructure ready as early as possible.
+    window.registerFirebaseMessagingSW();
   </script>
 </head>
 <body>
@@ -169,6 +264,6 @@
     <div class="loading-subtitle">Sholat & Hilal Sighting</div>
   </div>
 
-  <script src="flutter_bootstrap.js?v=1779924977870" async></script>
+  <script src="flutter_bootstrap.js?v=1779974306948" async></script>
 </body>
 </html>
