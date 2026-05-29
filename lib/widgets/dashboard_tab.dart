@@ -8,6 +8,8 @@ import '../providers/settings_provider.dart';
 import '../models/app_settings.dart';
 import '../utils/hijri_converter.dart';
 
+import 'gps_loading_view.dart';
+
 class DashboardTab extends ConsumerWidget {
   const DashboardTab({super.key});
 
@@ -55,6 +57,9 @@ class DashboardTab extends ConsumerWidget {
     final settings = ref.watch(settingsProvider);
 
     if (prayerState == null) {
+      if (settings.locationMode == LocationMode.gps && settings.isGpsLoading) {
+        return const GpsLoadingView();
+      }
       return const Center(
         child: CircularProgressIndicator(
           color: Color(0xFFD4AF37),
@@ -229,7 +234,7 @@ class DashboardTab extends ConsumerWidget {
                         settings.locationMode == LocationMode.preset
                             ? settings.selectedCity
                             : settings.locationMode == LocationMode.gps
-                                ? (settings.gpsLocationName ?? (settings.gpsLatitude != null ? 'Auto GPS' : 'Deteksi GPS...'))
+                                ? (settings.gpsLocationName ?? (settings.gpsLatitude != null ? 'Auto GPS' : 'Izin GPS Ditolak / Gagal'))
                                 : 'Kustom Koordinat',
                         style: GoogleFonts.plusJakartaSans(
                           color: Colors.white.withValues(alpha: 0.7),
@@ -262,6 +267,57 @@ class DashboardTab extends ConsumerWidget {
                 ],
               ),
             ),
+            
+            // Warning Banner for blocked GPS permission
+            if (settings.locationMode == LocationMode.gps && settings.gpsLatitude == null && !settings.isGpsLoading) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2C0F0F).withValues(alpha: 0.8),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.redAccent.withValues(alpha: 0.3),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.location_off_outlined,
+                      color: Colors.redAccent,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Izin Lokasi GPS Ditolak / Gagal',
+                            style: GoogleFonts.plusJakartaSans(
+                              color: Colors.redAccent,
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Aplikasi menggunakan lokasi default (DKI Jakarta). Silakan aktifkan izin lokasi di browser atau pilih lokasi manual di tab Setelan.',
+                            style: GoogleFonts.plusJakartaSans(
+                              color: Colors.white70,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            
             const SizedBox(height: 28),
 
             // Section Header

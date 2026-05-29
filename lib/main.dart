@@ -1,9 +1,11 @@
+// ignore_for_file: avoid_web_libraries_in_flutter, deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:js' as js;
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'config/app_env.dart';
@@ -23,19 +25,27 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  await _configureWebPushMessaging();
-
   runApp(
     const ProviderScope(
       child: MyApp(),
     ),
   );
+
+  // Configure Web Push Messaging in the background without blocking the loading screen
+  _configureWebPushMessaging();
 }
 
 Future<void> _configureWebPushMessaging() async {
   if (!kIsWeb) return;
 
   try {
+    // Check if browser notification permission is blocked
+    final htmlPermission = js.context['Notification']?['permission'];
+    if (htmlPermission == 'denied') {
+      debugPrint('Web push setup skipped: Notification permission blocked by browser.');
+      return;
+    }
+
     final settings = await FirebaseMessaging.instance.requestPermission(
       alert: true,
       badge: true,
@@ -56,6 +66,14 @@ Future<void> _configureWebPushMessaging() async {
       final title = notification?.title ?? 'Al-Waqt';
       final body = notification?.body ?? 'Ada notifikasi baru.';
       debugPrint('[FCM Foreground] $title - $body');
+
+      // Trigger native browser system notification for foreground messages
+      try {
+        js.context.callMethod('showLocalNotification', [title, body]);
+        js.context.callMethod('playNotificationSound', ['beep']);
+      } catch (e) {
+        debugPrint('Failed to show native browser notification: $e');
+      }
     });
   } catch (e) {
     debugPrint('Web push setup failed: $e');

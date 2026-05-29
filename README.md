@@ -25,5 +25,6 @@ firebase deploy --only hosting
 ## Catatan
 google adsense
 
-sepertinya ada masalah di update gps mode offline, 
-ketika diupdate offline dia tidak mau update waktu sholat, perlu di run sekali online dulu baru bisa offline
+jika pub busuk silahkan buat kode web native saja dan pastikan tambah “native activation button” di HTML yang 100% trusted gesture, lalu Flutter tinggal menampilkan status aktifnya.
+
+ada masalah kompas tidak bisa diaktifkan kembali setelah pindah halaman

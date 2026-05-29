@@ -46,3 +46,5 @@ app.*.map.json
 
 
 node_modules
+.next/
+.firebase/

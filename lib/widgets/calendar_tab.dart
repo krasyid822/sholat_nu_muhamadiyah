@@ -7,6 +7,7 @@ import '../utils/hijri_converter.dart';
 import '../providers/settings_provider.dart';
 import '../models/app_settings.dart';
 import '../data/cities.dart';
+import 'gps_loading_view.dart';
 
 class CalendarTab extends ConsumerStatefulWidget {
   const CalendarTab({super.key});
@@ -109,6 +110,11 @@ class _CalendarTabState extends ConsumerState<CalendarTab> {
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
+    
+    if (settings.locationMode == LocationMode.gps && settings.isGpsLoading) {
+      return const GpsLoadingView();
+    }
+
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 

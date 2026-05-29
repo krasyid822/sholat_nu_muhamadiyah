@@ -2,7 +2,6 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:js' as js;
-import 'dart:js_util' as js_util;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,6 +10,8 @@ import 'package:intl/intl.dart';
 import '../providers/settings_provider.dart';
 import '../models/app_settings.dart';
 import '../data/cities.dart';
+import 'web_ar_view.dart';
+import 'gps_loading_view.dart';
 
 class QiblaTab extends ConsumerStatefulWidget {
   const QiblaTab({super.key});
@@ -21,10 +22,15 @@ class QiblaTab extends ConsumerStatefulWidget {
 
 class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderStateMixin {
   bool _sensorsInitialized = false;
+  bool _arViewVisible = false;
+  bool _autoArActivationTriggered = false;
   double _currentHeading = 0.0;
+  double _deviceTilt = 0.0;
+  bool _isVerticalMode = false;
   double _qiblaBearing = 0.0;
   double _distanceToMecca = 0.0;
   Timer? _sensorTimer;
+  Timer? _activationTimer;
   String? _sensorError;
 
   late AnimationController _glowController;
@@ -45,13 +51,24 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
     // Automatically calculate bearings on start
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _calculateQiblaData();
+      if (!_autoArActivationTriggered) {
+        _autoArActivationTriggered = true;
+        _startQiblaFinder();
+      }
     });
   }
 
   @override
   void dispose() {
     _sensorTimer?.cancel();
+    _activationTimer?.cancel();
     _glowController.dispose();
+    try {
+      js.context.callMethod('stopHardware');
+    } catch (_) {}
+    try {
+      js.context.callMethod('stopCompassSensors');
+    } catch (_) {}
     try {
       js.context.callMethod('stopOrientationUpdates');
     } catch (_) {}
@@ -124,6 +141,7 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
     if (mounted) {
       setState(() {
         _sensorError = null;
+        _arViewVisible = true;
       });
     }
 
@@ -138,50 +156,12 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
         return;
       }
 
-      bool hasPermission = false;
-
-      // Defensive check: if startOrientationUpdates JS function is not defined
-      if (js.context['startOrientationUpdates'] != null) {
-        final result = js.context.callMethod('startOrientationUpdates');
-        
-        if (result != null) {
-          bool isPromise = false;
-          try {
-            if (result is! String && result is! bool && result is! num) {
-              isPromise = js_util.hasProperty(result, 'then') == true;
-            }
-          } catch (_) {}
-
-          if (isPromise) {
-            try {
-              final Future<dynamic> promiseFuture = js_util.promiseToFuture(result);
-              final permission = await promiseFuture;
-              hasPermission = (permission.toString() == 'granted');
-            } catch (_) {
-              hasPermission = (result.toString() == 'granted');
-            }
-          } else {
-            hasPermission = (result.toString() == 'granted');
-          }
-        }
-      } else {
-        hasPermission = true;
+      // Show native HTML activation control so sensor permission is requested from
+      // a direct DOM click (trusted user gesture), especially for iOS Safari/WebKit.
+      if (js.context['showArActivationOverlay'] != null) {
+        js.context.callMethod('showArActivationOverlay');
       }
-      
-      if (hasPermission) {
-        if (mounted) {
-          setState(() {
-            _sensorsInitialized = true;
-          });
-        }
-        _startSensorPolling();
-      } else {
-        if (mounted) {
-          setState(() {
-            _sensorError = 'Izin kompas sensor perangkat ditolak. Pastikan sensor orientasi aktif.';
-          });
-        }
-      }
+      _beginNativeActivationWatcher();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -189,6 +169,36 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
         });
       }
     }
+  }
+
+  void _beginNativeActivationWatcher() {
+    _activationTimer?.cancel();
+    _activationTimer = Timer.periodic(const Duration(milliseconds: 300), (timer) {
+      if (!mounted) return;
+      try {
+        final bool started = js.context['arHardwareStarted'] == true;
+        final String nativeState = js.context['arNativeActivationState']?.toString() ?? 'idle';
+
+        if (started) {
+          timer.cancel();
+          _activationTimer = null;
+          if (!_sensorsInitialized) {
+            setState(() {
+              _sensorsInitialized = true;
+              _sensorError = null;
+            });
+            _startSensorPolling();
+          }
+          return;
+        }
+
+        if (nativeState == 'denied' || nativeState == 'camera_denied' || nativeState == 'error') {
+          setState(() {
+            _sensorError = 'Izin kamera/kompas ditolak. Tekan ulang tombol aktivasi pada overlay kamera.';
+          });
+        }
+      } catch (_) {}
+    });
   }
 
   String? _validateWebCompassPrerequisites() {
@@ -224,6 +234,9 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
         final heading = js.context['qiblaHeading'];
         if (heading != null) {
           final double val = double.tryParse(heading.toString()) ?? 0.0;
+          final double pitch = double.tryParse((js.context['qiblaPitch'] ?? 0).toString()) ?? 0.0;
+          final double roll = double.tryParse((js.context['qiblaRoll'] ?? 0).toString()) ?? 0.0;
+          final double rawTilt = math.max(pitch.abs(), roll.abs());
           
           // Apply low-pass filter to make compass rotation buttery smooth
           final double diff = val - _currentHeading;
@@ -231,8 +244,13 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
           final double filteredDiff = math.atan2(math.sin(diff * math.pi / 180.0), math.cos(diff * math.pi / 180.0)) * 180.0 / math.pi;
           
           if (mounted) {
+            final bool nextVertical = _isVerticalMode
+                ? rawTilt > 35.0
+                : rawTilt > 45.0;
             setState(() {
               _currentHeading = (_currentHeading + filteredDiff * 0.25) % 360.0;
+              _deviceTilt = (_deviceTilt * 0.7) + (rawTilt * 0.3);
+              _isVerticalMode = nextVertical;
             });
           }
 
@@ -258,6 +276,10 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
     
+    if (settings.locationMode == LocationMode.gps && settings.isGpsLoading) {
+      return const GpsLoadingView();
+    }
+    
     // Determine location name display
     String displayLoc = 'Lokasi Tidak Diketahui';
     if (settings.locationMode == LocationMode.preset) {
@@ -277,8 +299,14 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
     return Scaffold(
       body: Stack(
         children: [
+          if (_arViewVisible)
+            const Positioned.fill(
+              child: WebARView(),
+            ),
+
           // 1. Deepest obsidian-emerald canvas background
-          Positioned.fill(
+          if (!_sensorsInitialized)
+            Positioned.fill(
             child: Container(
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
@@ -290,8 +318,8 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
                   end: Alignment.bottomCenter,
                 ),
               ),
+              ),
             ),
-          ),
 
           // 2. Glowing Golden Pulse borders when aligned with Mecca
           if (isAligned && _sensorsInitialized)
@@ -394,7 +422,7 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
                             ? _buildErrorScreen()
                             : !_sensorsInitialized
                                 ? _buildOnboardingScreen(screenWidth)
-                                : _buildCompassHud(screenWidth, relativeQiblaAngle, isAligned),
+                                : _buildAdaptiveArHud(screenWidth, relativeQiblaAngle, isAligned),
                       ),
                     ),
 
@@ -516,61 +544,7 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
                   height: 1.6,
                 ),
                 textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              
-              // Device capability tip
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF05120C),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF81C784).withOpacity(0.2)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.info_outline, color: Color(0xFF81C784), size: 20),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Pastikan browser Anda diizinkan untuk mengakses sensor arah/kompas HP.',
-                        style: GoogleFonts.plusJakartaSans(
-                          color: const Color(0xFF81C784),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2A1A08),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFD4AF37).withOpacity(0.25)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.warning_amber_rounded, color: Color(0xFFD4AF37), size: 20),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Akurasi heading di browser dapat berbeda-beda antar perangkat dan kalibrasi OS.',
-                        style: GoogleFonts.plusJakartaSans(
-                          color: const Color(0xFFE6C575),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 28),
-              
+              ),              
               // Start Button (User Gesture)
               ElevatedButton(
                 onPressed: _startQiblaFinder,
@@ -603,6 +577,250 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // Circular rotating Compass Dial
+  Widget _buildAdaptiveArHud(double width, double relativeQibla, bool isAligned) {
+    if (!_isVerticalMode) {
+      return _buildCompassHud(width, relativeQibla, isAligned);
+    }
+
+    // 1. Calculate horizontal difference mapped to -180 to 180 degrees
+    double diff = relativeQibla;
+    if (diff > 180) {
+      diff = diff - 360;
+    }
+
+    // 2. Define horizontal field of view (FOV) in degrees
+    const double horizontalFOV = 50.0;
+    final bool isVisible = diff.abs() <= (horizontalFOV / 2.0);
+
+    // 3. Pitch calculation for vertical tracking (horizon)
+    final double rawPitch = double.tryParse((js.context['qiblaPitch'] ?? 75.0).toString()) ?? 75.0;
+    final double pitchDiff = (rawPitch - 75.0).clamp(-25.0, 25.0);
+    final double dy = pitchDiff * 8.0; // Corrected sign to fix reversed tilt!
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double height = constraints.maxHeight;
+        final double centerX = width / 2.0;
+        final double centerY = height * 0.45; // exact projection horizon center
+
+        // Path coordinates pointing to where the Kaaba is in virtual space.
+        // When off-screen, dx continues to grow large, which draws the line extending off-screen to guide the user!
+        final double dx = (diff / (horizontalFOV / 2.0)) * (width / 2.0);
+
+        final Offset startPoint = Offset(centerX, height * 0.82);
+        final Offset endPoint = Offset(centerX + dx, centerY + dy);
+
+        return Stack(
+          children: [
+            // 1. Dynamic holographic pathway tether line (Always visible!)
+            Positioned.fill(
+              child: CustomPaint(
+                painter: PathwayLinePainter(
+                  start: startPoint,
+                  end: endPoint,
+                  isAligned: isAligned,
+                ),
+              ),
+            ),
+
+            // 2. 3D Projected AR Horizon & Kaaba Layer (Visible only when in FOV)
+            if (isVisible)
+              Positioned.fill(
+                child: Align(
+                  alignment: Alignment.center,
+                  child: Builder(
+                    builder: (context) {
+                      final double progress = diff.abs() / (horizontalFOV / 2.0); // 0.0 at center, 1.0 at edge
+                      final double opacity = (1.0 - progress).clamp(0.0, 1.0);
+                      final double scale = 0.65 + 0.35 * (1.0 - progress);
+                      final double yaw = (diff / (horizontalFOV / 2.0)) * 0.5;
+
+                      return Opacity(
+                        opacity: opacity,
+                        child: Transform(
+                          alignment: Alignment.center,
+                          transform: Matrix4.identity()
+                            ..setEntry(3, 2, 0.0012) // Perspective projection
+                            ..translate(dx, dy, 0.0) // Position in 3D space
+                            ..rotateY(-yaw) // Yaw rotation
+                            ..scale(scale), // Depth scaling
+                          child: _buildKaaba3DObject(isAligned),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              )
+            else
+              // If not in view, show a beautiful golden pointer pointing left/right to guide user!
+              Positioned(
+                left: 0,
+                right: 0,
+                top: height * 0.32,
+                child: Center(
+                  child: AnimatedOpacity(
+                    opacity: _sensorsInitialized ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 300),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0C1913).withOpacity(0.85),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: const Color(0xFFD4AF37).withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            diff > 0 ? Icons.arrow_circle_right_outlined : Icons.arrow_circle_left_outlined,
+                            color: const Color(0xFFD4AF37),
+                            size: 24,
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            'Putar perangkat Anda ke ${diff > 0 ? "kanan" : "kiri"} ${diff.abs().toStringAsFixed(0)}°',
+                            style: GoogleFonts.plusJakartaSans(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+            Positioned(
+              top: 12,
+              right: 12,
+              child: _buildMiniCompassCorner(relativeQibla, isAligned),
+            ),
+            Positioned(
+              left: 20,
+              right: 20,
+              bottom: 24,
+              child: Text(
+                'Mode AR Vertikal aktif (tilt ${_deviceTilt.toStringAsFixed(0)}°)',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.plusJakartaSans(
+                  color: Colors.white70,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildMiniCompassCorner(double relativeQibla, bool isAligned) {
+    const double miniSize = 132;
+    return Container(
+      width: miniSize,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xCC0C1913),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isAligned ? const Color(0xFFD4AF37) : Colors.white24,
+        ),
+      ),
+      child: Column(
+        children: [
+          SizedBox(
+            width: miniSize - 24,
+            height: miniSize - 24,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Transform.rotate(
+                  angle: -_currentHeading * math.pi / 180.0,
+                  child: CustomPaint(
+                    size: const Size(miniSize - 24, miniSize - 24),
+                    painter: CompassDialPainter(
+                      qiblaBearing: _qiblaBearing,
+                      isAligned: isAligned,
+                    ),
+                  ),
+                ),
+                const Icon(Icons.navigation, color: Color(0xFFD4AF37), size: 18),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${_currentHeading.toStringAsFixed(0)}°',
+            style: GoogleFonts.plusJakartaSans(
+              color: const Color(0xFFD4AF37),
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildKaaba3DObject(bool isAligned) {
+    return Container(
+      width: 180,
+      height: 180,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF141414), Color(0xFF050505)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(color: const Color(0xFFD4AF37), width: 1.8),
+        boxShadow: [
+          BoxShadow(
+            color: (isAligned ? const Color(0xFFD4AF37) : Colors.black)
+                .withOpacity(isAligned ? 0.35 : 0.45),
+            blurRadius: isAligned ? 25 : 16,
+            spreadRadius: isAligned ? 3 : 0,
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: Container(
+              margin: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0x66D4AF37)),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            top: 48,
+            child: Container(
+              height: 14,
+              color: const Color(0xFFD4AF37).withOpacity(0.9),
+              child: Center(
+                child: Container(
+                  height: 1,
+                  color: const Color(0xFFFFE082),
+                ),
+              ),
+            ),
+          ),
+          const Center(
+            child: Icon(Icons.mosque, size: 60, color: Color(0xFFD4AF37)),
+          ),
+        ],
       ),
     );
   }
@@ -717,7 +935,7 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
             ],
           ),
           
-          const SizedBox(height: 36),
+          const SizedBox(height: 12),
 
           // Guidance status text
           _buildGuidanceLabel(relativeQibla, isAligned),
@@ -1059,8 +1277,8 @@ class CompassDialPainter extends CustomPainter {
 
       textPainter.layout();
       final Offset textOffset = Offset(
-        center.dx + (innerRadius - 22) * math.cos(angleRad) - textPainter.width / 2,
-        center.dy + (innerRadius - 22) * math.sin(angleRad) - textPainter.height / 2,
+        center.dx + (innerRadius - 8) * math.cos(angleRad) - textPainter.width / 2,
+        center.dy + (innerRadius - 8) * math.sin(angleRad) - textPainter.height / 2,
       );
 
       canvas.save();
@@ -1074,8 +1292,8 @@ class CompassDialPainter extends CustomPainter {
     final double qiblaRad = (qiblaBearing - 90.0) * math.pi / 180.0;
     
     final Offset meccaPos = Offset(
-      center.dx + (innerRadius - 35) * math.cos(qiblaRad),
-      center.dy + (innerRadius - 35) * math.sin(qiblaRad),
+      center.dx + (innerRadius - 12) * math.cos(qiblaRad),
+      center.dy + (innerRadius - 12) * math.sin(qiblaRad),
     );
 
     final needlePaint = Paint()
@@ -1128,4 +1346,62 @@ class TrianglePointerPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant TrianglePointerPainter oldDelegate) => oldDelegate.color != color;
+}
+
+// 3. Pathway Line Painter for AR mode dynamic target tether
+class PathwayLinePainter extends CustomPainter {
+  final Offset start;
+  final Offset end;
+  final bool isAligned;
+
+  PathwayLinePainter({
+    required this.start,
+    required this.end,
+    required this.isAligned,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..strokeWidth = 3.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    final gradient = ui.Gradient.linear(
+      start,
+      end,
+      [
+        const Color(0xFFD4AF37).withOpacity(0.0), // Fades out at screen bottom
+        isAligned ? const Color(0xFFD4AF37) : const Color(0xFF81C784), // Becomes solid at Kaaba
+      ],
+    );
+
+    paint.shader = gradient;
+    canvas.drawLine(start, end, paint);
+
+    // Dynamic blur/glow backdrop under the line
+    final glowPaint = Paint()
+      ..strokeWidth = 7.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..imageFilter = ui.ImageFilter.blur(sigmaX: 5.0, sigmaY: 5.0);
+
+    final glowGradient = ui.Gradient.linear(
+      start,
+      end,
+      [
+        const Color(0xFFD4AF37).withOpacity(0.0),
+        (isAligned ? const Color(0xFFD4AF37) : const Color(0xFF81C784)).withOpacity(0.35),
+      ],
+    );
+    glowPaint.shader = glowGradient;
+    canvas.drawLine(start, end, glowPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant PathwayLinePainter oldDelegate) {
+    return oldDelegate.start != start ||
+        oldDelegate.end != end ||
+        oldDelegate.isAligned != isAligned;
+  }
 }

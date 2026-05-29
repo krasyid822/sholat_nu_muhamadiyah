@@ -74,19 +74,30 @@ class PrayerNotifier extends StateNotifier<PrayerState?> {
     }
   }
 
-  void _triggerNotification(String name) {
+  void _triggerNotification(String name, String time) {
     if (!kIsWeb) return;
     try {
-      final title = 'Waktu $name Telah Tiba';
+      final title = 'Waktu $name Telah Tiba ($time)';
       final body = name == 'Imsak' 
-          ? 'Waktu Imsak telah masuk. Silakan bersiap-siap untuk berpuasa.'
-          : 'Waktunya menunaikan ibadah shalat $name untuk wilayah Anda.';
+          ? 'Waktu Imsak ($time) telah masuk. Silakan bersiap-siap untuk berpuasa.'
+          : 'Waktunya menunaikan ibadah shalat $name ($time) untuk wilayah Anda.';
       
       js.context.callMethod('showLocalNotification', [title, body]);
+
+      // Play custom adzan sound for prayer times, or a beep for Imsak/Syuruq
+      final soundType = (name == 'Imsak' || name == 'Syuruq') ? 'beep' : 'adzan';
+      js.context.callMethod('playNotificationSound', [soundType]);
     } catch (_) {}
   }
 
   void _updatePrayerState() {
+    // If we are actively waiting for GPS location to load (not yet obtained or timed out/failed),
+    // do not perform calculations, set state = null, and return to keep showing the loading indicator.
+    if (settings.locationMode == LocationMode.gps && settings.isGpsLoading) {
+      state = null;
+      return;
+    }
+
     // 1. Get current latitude and longitude
     double latitude;
     double longitude;
@@ -200,7 +211,7 @@ class PrayerNotifier extends StateNotifier<PrayerState?> {
           final notifyKey = '${nowFormatted}_${entry.key}';
           if (_lastNotifiedTimeKey != notifyKey) {
             _lastNotifiedTimeKey = notifyKey;
-            _triggerNotification(entry.key);
+            _triggerNotification(entry.key, prayerTimeFormatted);
           }
         }
       }

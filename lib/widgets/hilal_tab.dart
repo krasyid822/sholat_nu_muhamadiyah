@@ -7,6 +7,7 @@ import '../providers/settings_provider.dart';
 import '../models/app_settings.dart';
 import '../utils/hijri_converter.dart';
 import '../data/cities.dart';
+import 'gps_loading_view.dart';
 
 class HilalTab extends ConsumerStatefulWidget {
   const HilalTab({super.key});
@@ -78,6 +79,11 @@ class _HilalTabState extends ConsumerState<HilalTab> {
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
+    
+    if (settings.locationMode == LocationMode.gps && settings.isGpsLoading) {
+      return const GpsLoadingView();
+    }
+
     final now = DateTime.now();
 
     if (_firstRun) {

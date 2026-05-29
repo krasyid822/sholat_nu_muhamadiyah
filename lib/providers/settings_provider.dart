@@ -77,6 +77,7 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
         keepScreenOn: keepScreenOn,
         hijriOffset: hijriOffset,
         isbatDateStr: isbatDateStr,
+        isGpsLoading: (locationModeIndex == null || LocationMode.values[locationModeIndex] == LocationMode.gps) && gpsLat == null,
       );
 
       // Restore screen wake lock if it was enabled
@@ -114,7 +115,10 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
   }
 
   Future<void> setLocationMode(LocationMode mode) async {
-    state = state.copyWith(locationMode: mode);
+    state = state.copyWith(
+      locationMode: mode,
+      isGpsLoading: mode == LocationMode.gps && state.gpsLatitude == null,
+    );
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_keyLocationMode, mode.index);
     await _syncFcmTopics();
@@ -152,6 +156,7 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
       gpsLongitude: lng,
       gpsAltitude: alt,
       gpsLocationName: locName,
+      isGpsLoading: false,
     );
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_keyGpsLat, lat);
@@ -162,6 +167,9 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
   }
 
   Future<void> fetchGpsLocation() async {
+    if (state.locationMode == LocationMode.gps && state.gpsLatitude == null) {
+      state = state.copyWith(isGpsLoading: true);
+    }
     double latitude;
     double longitude;
     double altitude = 0.0;
@@ -179,6 +187,7 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
         longitude = position.longitude;
         altitude = position.altitude;
       } catch (e) {
+        state = state.copyWith(isGpsLoading: false);
         final errStr = e.toString();
         if (errStr.contains('denied') || errStr.contains('Permission')) {
           throw 'Izin lokasi ditolak. Aktifkan akses lokasi di pengaturan browser Anda.';
@@ -188,32 +197,40 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
       }
     } else {
       // Mobile-native checks and updates
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        throw 'Layanan GPS dinonaktifkan di perangkat Anda.';
-      }
-
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          throw 'Izin akses lokasi ditolak oleh pengguna.';
+      try {
+        final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+        if (!serviceEnabled) {
+          state = state.copyWith(isGpsLoading: false);
+          throw 'Layanan GPS dinonaktifkan di perangkat Anda.';
         }
-      }
-      
-      if (permission == LocationPermission.deniedForever) {
-        throw 'Izin lokasi diblokir permanen. Aktifkan lewat setelan sistem.';
-      }
 
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      );
-      
-      latitude = position.latitude;
-      longitude = position.longitude;
-      altitude = position.altitude;
+        LocationPermission permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+          if (permission == LocationPermission.denied) {
+            state = state.copyWith(isGpsLoading: false);
+            throw 'Izin akses lokasi ditolak oleh pengguna.';
+          }
+        }
+        
+        if (permission == LocationPermission.deniedForever) {
+          state = state.copyWith(isGpsLoading: false);
+          throw 'Izin lokasi diblokir permanen. Aktifkan lewat setelan sistem.';
+        }
+
+        final position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+          ),
+        );
+        
+        latitude = position.latitude;
+        longitude = position.longitude;
+        altitude = position.altitude;
+      } catch (e) {
+        state = state.copyWith(isGpsLoading: false);
+        rethrow;
+      }
     }
 
     // Call OpenStreetMap Nominatim reverse geocoding API to resolve the address name

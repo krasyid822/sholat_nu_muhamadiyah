@@ -26,6 +26,7 @@ class AppSettings {
   final int? _hijriOffset; // Manual calendar correction offset (-1, 0, +1 day)
   int get hijriOffset => _hijriOffset ?? 0;
   final String? isbatDateStr; // Gregorian date of Sidang Isbat, e.g. '2026-05-27'
+  final bool isGpsLoading;
 
   // ignore: prefer_initializing_formals
   const AppSettings({
@@ -44,6 +45,7 @@ class AppSettings {
     required this.keepScreenOn,
     int? hijriOffset,
     this.isbatDateStr,
+    this.isGpsLoading = false,
     // ignore: prefer_initializing_formals
   }) : _hijriOffset = hijriOffset;
 
@@ -63,6 +65,7 @@ class AppSettings {
     bool? keepScreenOn,
     int? hijriOffset,
     String? isbatDateStr,
+    bool? isGpsLoading,
   }) {
     return AppSettings(
       calcMethod: calcMethod ?? this.calcMethod,
@@ -80,6 +83,7 @@ class AppSettings {
       keepScreenOn: keepScreenOn ?? this.keepScreenOn,
       hijriOffset: hijriOffset ?? this.hijriOffset,
       isbatDateStr: isbatDateStr ?? this.isbatDateStr,
+      isGpsLoading: isGpsLoading ?? this.isGpsLoading,
     );
   }
 
@@ -101,6 +105,7 @@ class AppSettings {
       keepScreenOn: false,
       hijriOffset: 0,
       isbatDateStr: null,
+      isGpsLoading: true, // Since GPS is default and we start fetching it immediately on startup
     );
   }
 }

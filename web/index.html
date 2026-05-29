@@ -129,6 +129,28 @@
       }
     };
 
+    window.playNotificationSound = function(soundType) {
+      try {
+        let soundUrl = '';
+        if (soundType === 'adzan') {
+          // A beautiful, highly reliable Adzan audio file
+          soundUrl = 'https://www.islamcan.com/audio/adhan/azan1.mp3';
+        } else {
+          // A pleasant, high-quality notification chime/beep
+          soundUrl = 'https://assets.mixkit.co/active_storage/sfx/2869/2869-84.wav';
+        }
+        
+        const audio = new Audio(soundUrl);
+        // Set lower volume by default so it's not overly loud
+        audio.volume = soundType === 'adzan' ? 0.7 : 0.5;
+        audio.play().catch((err) => {
+          console.log('Audio autoplay blocked or failed:', err);
+        });
+      } catch (e) {
+        console.error('Failed to play audio:', e);
+      }
+    };
+
     // Register Firebase Messaging service worker explicitly so web push
     // can be delivered while app is in background/closed on mobile browser.
     window.registerFirebaseMessagingSW = async function() {
@@ -177,9 +199,61 @@
       return wakeLockSentinel !== null;
     };
 
+    // Force update helper: clear caches + unregister service workers + hard reload.
+    window.forceRefreshAppCache = async function() {
+      try {
+        // 1. Clear Cache Storage API caches (PWA cached assets)
+        if ('caches' in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((key) => caches.delete(key)));
+        }
+
+        // 2. Fetch critical entry point files with 'cache: reload' + nocache query to force-evict HTTP cache
+        const criticalUrls = [
+          window.location.pathname,
+          'flutter_bootstrap.js?v=1780044715229',
+          'flutter_service_worker.js',
+          'manifest.json',
+          'version.json'
+        ];
+
+        for (const url of criticalUrls) {
+          try {
+            await fetch(url + '?nocache=' + Date.now(), {
+              cache: 'reload',
+              headers: {
+                'Pragma': 'no-cache',
+                'Cache-Control': 'no-cache'
+              }
+            });
+          } catch (e) {
+            console.warn('Failed to force refresh file cache:', url, e);
+          }
+        }
+
+        // 3. Unregister all service workers
+        if ('serviceWorker' in navigator) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(registrations.map((registration) => registration.unregister()));
+        }
+
+        // 4. Force a clean location replacement with refresh query param to bypass cache
+        const currentUrl = new URL(window.location.href);
+        currentUrl.searchParams.set('refresh', Date.now().toString());
+        window.location.replace(currentUrl.toString());
+        return true;
+      } catch (err) {
+        console.error('forceRefreshAppCache failed:', err);
+        window.location.reload();
+        return false;
+      }
+    };
+
     // Qibla Compass Web API Integration
     window.hasAbsoluteEvent = false;
     window.qiblaHeading = null;
+    window.qiblaPitch = 0;
+    window.qiblaRoll = 0;
     window.orientationPermissionGranted = false;
 
     function handleOrientationAbsolute(event) {
@@ -196,6 +270,12 @@
       if (heading !== null) {
         window.qiblaHeading = heading;
       }
+      if (event.beta !== null) {
+        window.qiblaPitch = event.beta;
+      }
+      if (event.gamma !== null) {
+        window.qiblaRoll = event.gamma;
+      }
     }
 
     function handleOrientation(event) {
@@ -211,7 +291,47 @@
       if (heading !== null) {
         window.qiblaHeading = heading;
       }
+      if (event.beta !== null) {
+        window.qiblaPitch = event.beta;
+      }
+      if (event.gamma !== null) {
+        window.qiblaRoll = event.gamma;
+      }
     }
+
+    // Native compass-only sensor bootstrap (without camera dependency)
+    window.startCompassSensors = async function() {
+      let permissionState = 'granted';
+      window.hasAbsoluteEvent = false;
+
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        try {
+          permissionState = await DeviceOrientationEvent.requestPermission();
+        } catch (err) {
+          console.error('Compass permission request failed:', err);
+          return 'error';
+        }
+      }
+
+      if (permissionState !== 'granted') {
+        return 'denied';
+      }
+
+      window.orientationPermissionGranted = true;
+      window.removeEventListener('deviceorientationabsolute', handleOrientationAbsolute, true);
+      window.removeEventListener('deviceorientation', handleOrientation, true);
+      window.addEventListener('deviceorientationabsolute', handleOrientationAbsolute, true);
+      window.addEventListener('deviceorientation', handleOrientation, true);
+      console.log('Compass sensors started (native HTML5)');
+      return 'granted';
+    };
+
+    window.stopCompassSensors = function() {
+      window.removeEventListener('deviceorientationabsolute', handleOrientationAbsolute, true);
+      window.removeEventListener('deviceorientation', handleOrientation, true);
+      console.log('Compass sensors stopped (native HTML5)');
+      return true;
+    };
 
     window.startOrientationUpdates = async function() {
       if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
@@ -252,6 +372,116 @@
       return true;
     };
 
+    // AR Camera + Compass container state
+    let arCameraStream = null;
+    let arOrientationHandler = null;
+    let arNeedleInterval = null;
+    window.arHardwareStarted = false;
+    window.arNativeActivationState = 'idle';
+
+    window.showArActivationOverlay = function() {
+      const container = document.getElementById('ar-compass-container');
+      const activateBtn = document.getElementById('ar-native-activate-btn');
+      if (container) {
+        container.style.display = 'block';
+      }
+      if (activateBtn) {
+        activateBtn.style.display = 'inline-flex';
+      }
+      return true;
+    };
+
+    window.startHardware = async function() {
+      const container = document.getElementById('ar-compass-container');
+      const video = document.getElementById('camera-feed');
+      const needle = document.getElementById('needle');
+      if (!container || !video || !needle) {
+        return 'error';
+      }
+
+      container.style.display = 'block';
+
+      let permissionState = 'granted';
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        try {
+          permissionState = await DeviceOrientationEvent.requestPermission();
+        } catch (err) {
+          console.error('Orientation permission request failed:', err);
+          return 'error';
+        }
+      }
+
+      if (permissionState !== 'granted') {
+        window.arNativeActivationState = 'denied';
+        return 'denied';
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false
+        });
+        arCameraStream = stream;
+        video.srcObject = stream;
+        window.arHardwareStarted = true;
+      } catch (err) {
+        console.error('Camera access denied/unavailable:', err);
+        window.arNativeActivationState = 'camera_denied';
+        return 'camera_denied';
+      }
+
+      if (arOrientationHandler) {
+        window.removeEventListener('deviceorientation', arOrientationHandler, true);
+      }
+
+      arOrientationHandler = function() {
+        if (window.qiblaHeading !== null) {
+          needle.style.transform = 'translate(-50%, -50%) rotate(' + window.qiblaHeading + 'deg)';
+        }
+      };
+      if (arNeedleInterval) {
+        window.clearInterval(arNeedleInterval);
+      }
+      arNeedleInterval = window.setInterval(arOrientationHandler, 30);
+      const status = await window.startCompassSensors();
+      window.arNativeActivationState = status;
+      if (status === 'granted') {
+        const activateBtn = document.getElementById('ar-native-activate-btn');
+        if (activateBtn) {
+          activateBtn.style.display = 'none';
+        }
+      }
+      return status;
+    };
+
+    window.stopHardware = function() {
+      if (arOrientationHandler) {
+        arOrientationHandler = null;
+      }
+      if (arNeedleInterval) {
+        window.clearInterval(arNeedleInterval);
+        arNeedleInterval = null;
+      }
+      window.stopCompassSensors();
+
+      if (arCameraStream) {
+        arCameraStream.getTracks().forEach((track) => track.stop());
+        arCameraStream = null;
+      }
+
+      const container = document.getElementById('ar-compass-container');
+      const video = document.getElementById('camera-feed');
+      if (video) {
+        video.srcObject = null;
+      }
+      if (container) {
+        container.style.display = 'none';
+      }
+      window.arHardwareStarted = false;
+      window.arNativeActivationState = 'idle';
+      return true;
+    };
+
     // Fire and forget; keeps web push infrastructure ready as early as possible.
     window.registerFirebaseMessagingSW();
   </script>
@@ -264,6 +494,56 @@
     <div class="loading-subtitle">Sholat & Hilal Sighting</div>
   </div>
 
-  <script src="flutter_bootstrap.js?v=1779974306948" async></script>
+  <div
+    id="ar-compass-container"
+    style="display:none; position:relative; width:100%; height:100%; overflow:hidden; background:#000;"
+  >
+    <video
+      id="camera-feed"
+      autoplay
+      muted
+      playsinline
+      style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;"
+    ></video>
+
+    <div
+      id="compass-ui"
+      style="display:none !important; position:absolute; top:50%; left:50%; width:160px; height:160px; transform:translate(-50%, -50%); pointer-events:none;"
+    >
+      <div
+        style="position:absolute; inset:0; border-radius:50%; border:2px solid rgba(255,255,255,0.35); box-shadow:0 0 20px rgba(0,0,0,0.45);"
+      ></div>
+      <div
+        id="needle"
+        style="position:absolute; top:50%; left:50%; width:6px; height:68px; background:linear-gradient(to top, #2ecc71 0%, #d4af37 100%); transform-origin:50% 85%; transform:translate(-50%, -50%) rotate(0deg); border-radius:3px;"
+      ></div>
+      <div
+        style="position:absolute; top:50%; left:50%; width:14px; height:14px; transform:translate(-50%, -50%); border-radius:50%; background:#d4af37;"
+      ></div>
+    </div>
+
+    <button
+      id="ar-native-activate-btn"
+      style="position:absolute; left:50%; bottom:36px; transform:translateX(-50%); z-index:20; display:inline-flex; align-items:center; justify-content:center; border:none; border-radius:14px; padding:12px 18px; background:#d4af37; color:#05120C; font-weight:700; font-size:14px; box-shadow:0 4px 14px rgba(0,0,0,0.4);"
+    >
+      Aktifkan Sensor Kompas
+    </button>
+  </div>
+
+  <script>
+    (function bindNativeActivationButton() {
+      const btn = document.getElementById('ar-native-activate-btn');
+      if (!btn) return;
+      btn.addEventListener('click', async function() {
+        btn.textContent = 'Meminta Izin...';
+        const status = await window.startHardware();
+        if (status !== 'granted') {
+          btn.textContent = 'Ulangi Aktivasi Sensor';
+        }
+      }, { passive: true });
+    })();
+  </script>
+
+  <script src="flutter_bootstrap.js?v=1780044715229" async></script>
 </body>
 </html>

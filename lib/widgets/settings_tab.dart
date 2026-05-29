@@ -1,7 +1,10 @@
+// ignore_for_file: avoid_web_libraries_in_flutter, deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:js' as js;
 import '../providers/settings_provider.dart';
 import '../models/app_settings.dart';
 import '../data/cities.dart';
@@ -100,6 +103,84 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
           backgroundColor: const Color(0xFF0F5A3E),
         ),
       );
+    }
+  }
+
+  Future<void> _reloadWebCache() async {
+    if (!kIsWeb) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Fitur reload cache hanya tersedia di Flutter Web.',
+            style: GoogleFonts.plusJakartaSans(color: Colors.white),
+          ),
+          backgroundColor: Colors.orange.shade700,
+        ),
+      );
+      return;
+    }
+
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF0C1913),
+          title: Text(
+            'Reload Cache Aplikasi?',
+            style: GoogleFonts.plusJakartaSans(
+              color: const Color(0xFFD4AF37),
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: Text(
+            'Tindakan ini akan membersihkan cache dan service worker, lalu memuat ulang aplikasi agar update terbaru segera aktif.',
+            style: GoogleFonts.plusJakartaSans(color: Colors.white70, fontSize: 13),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(
+                'Batal',
+                style: GoogleFonts.plusJakartaSans(color: Colors.white54),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFD4AF37),
+                foregroundColor: Colors.black,
+              ),
+              child: Text(
+                'Reload Sekarang',
+                style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirm != true || !mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Membersihkan cache dan memuat ulang aplikasi...',
+          style: GoogleFonts.plusJakartaSans(color: Colors.white),
+        ),
+        backgroundColor: const Color(0xFF0F5A3E),
+      ),
+    );
+
+    try {
+      if (js.context['forceRefreshAppCache'] != null) {
+        js.context.callMethod('forceRefreshAppCache');
+      } else {
+        js.context['location'].callMethod('reload');
+      }
+    } catch (_) {
+      js.context['location'].callMethod('reload');
     }
   }
 
@@ -916,7 +997,7 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                               ),
                             ),
                             const SizedBox(height: 16),
-                            ElevatedButton.icon(
+                             ElevatedButton.icon(
                               onPressed: _isLoadingGps ? null : _triggerGpsFetch,
                               icon: _isLoadingGps 
                                   ? const SizedBox(
@@ -926,7 +1007,11 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                                     )
                                   : const Icon(Icons.gps_fixed_rounded, size: 18),
                               label: Text(
-                                _isLoadingGps ? 'Mendeteksi GPS...' : 'Dapatkan Lokasi via GPS',
+                                _isLoadingGps 
+                                    ? 'Mendeteksi GPS...' 
+                                    : (settings.gpsLatitude != null && settings.gpsLongitude != null)
+                                        ? 'Perbarui Lokasi via GPS'
+                                        : 'Dapatkan Lokasi via GPS',
                                 style: GoogleFonts.plusJakartaSans(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 14,
@@ -1003,6 +1088,26 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                       onChanged: (val) {
                         ref.read(settingsProvider.notifier).setKeepScreenOn(val);
                       },
+                    ),
+                    Divider(color: Colors.white.withValues(alpha: 0.05), height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.refresh_rounded, color: Color(0xFFD4AF37)),
+                      title: Text(
+                        'Reload Cache Aplikasi (Web)',
+                        style: GoogleFonts.plusJakartaSans(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      subtitle: Text(
+                        'Paksa update terbaru tanpa menunggu sinkronisasi service worker.',
+                        style: GoogleFonts.plusJakartaSans(
+                          color: Colors.white38,
+                          fontSize: 11,
+                        ),
+                      ),
+                      onTap: _reloadWebCache,
                     ),
                   ],
                 ),
