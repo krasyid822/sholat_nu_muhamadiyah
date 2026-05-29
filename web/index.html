@@ -249,6 +249,206 @@
       }
     };
 
+    // Print Monthly Hijri Calendar Helper
+    window.printHijriCalendar = function(title, subtitle, locationName, calcMethod, columns, rows) {
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        alert('Mohon aktifkan pop-up browser untuk mencetak jadwal sholat.');
+        return false;
+      }
+
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>${title} - ${subtitle}</title>
+          <meta charset="utf-8">
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+            body {
+              font-family: 'Plus Jakarta Sans', sans-serif;
+              color: #111827;
+              margin: 40px;
+              padding: 0;
+              font-size: 11px;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 25px;
+              border-bottom: 2.5px solid #0F5A3E;
+              padding-bottom: 15px;
+            }
+            .header h1 {
+              color: #0F5A3E;
+              font-size: 22px;
+              margin: 0 0 5px 0;
+              font-weight: 700;
+              letter-spacing: 1px;
+            }
+            .header h2 {
+              color: #B45309;
+              font-size: 14px;
+              margin: 0 0 10px 0;
+              font-weight: 600;
+              letter-spacing: 0.5px;
+            }
+            .meta-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 15px;
+              font-size: 11px;
+              color: #4B5563;
+              margin-bottom: 20px;
+              padding: 0 10px;
+            }
+            .meta-item strong {
+              color: #1F2937;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 15px;
+              page-break-inside: auto;
+            }
+            tr {
+              page-break-inside: avoid;
+              page-break-after: auto;
+            }
+            th {
+              background-color: #0F5A3E;
+              color: white;
+              font-weight: 600;
+              text-transform: uppercase;
+              font-size: 10px;
+              letter-spacing: 0.5px;
+              padding: 9px 6px;
+              border: 1px solid #0F5A3E;
+            }
+            td {
+              padding: 8px 6px;
+              border: 1px solid #E5E7EB;
+              text-align: center;
+            }
+            tr:nth-child(even) td {
+              background-color: #F9FAFB;
+            }
+            .weekend td {
+              background-color: #FFFBEB !important; /* Premium light gold/yellow for weekends */
+              font-weight: 500;
+            }
+            .special-day td {
+              background-color: #ECFDF5 !important; /* Premium light emerald for Islamic events */
+              font-weight: 600;
+              color: #065F46;
+            }
+            .holiday-name {
+              font-size: 9px;
+              font-weight: 700;
+              color: #D97706;
+            }
+            .footer {
+              margin-top: 40px;
+              text-align: center;
+              font-size: 9px;
+              color: #9CA3AF;
+              border-top: 1px solid #E5E7EB;
+              padding-top: 15px;
+              line-height: 1.5;
+            }
+            @media print {
+              body {
+                margin: 20px;
+              }
+              .no-print {
+                display: none;
+              }
+              th {
+                background-color: #0F5A3E !important;
+                color: white !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              .weekend td {
+                background-color: #FFFBEB !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              .special-day td {
+                background-color: #ECFDF5 !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>${title}</h1>
+            <h2>${subtitle}</h2>
+          </div>
+          
+          <div class="meta-grid">
+            <div class="meta-item">
+              <strong>Lokasi:</strong> ${locationName}<br>
+              <strong>Metode Perhitungan:</strong> ${calcMethod}
+            </div>
+            <div class="meta-item" style="text-align: right;">
+              <strong>Tanggal Cetak:</strong> ${new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}<br>
+              <strong>Sistem Aplikasi:</strong> Al-Waqt (Kemenag & Muhammadiyah)
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                ${columns.map(col => `<th>${col}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(row => {
+                let rowClass = '';
+                if (row.isSpecial) rowClass = 'special-day';
+                else if (row.isWeekend) rowClass = 'weekend';
+
+                return `
+                  <tr class="${rowClass}">
+                    <td><strong>${row.dayName}</strong></td>
+                    <td>${row.hijriDate}</td>
+                    <td>${row.gregorianDate}</td>
+                    <td style="color: #4B5563;">${row.imsak}</td>
+                    <td style="font-weight: 600;">${row.subuh}</td>
+                    <td style="color: #6B7280;">${row.syuruq}</td>
+                    <td>${row.dzuhur}</td>
+                    <td>${row.ashar}</td>
+                    <td style="font-weight: 600; color: #0F5A3E;">${row.maghrib}</td>
+                    <td>${row.isya}</td>
+                    <td><span class="holiday-name">${row.keterangan || ''}</span></td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+
+          <div class="footer">
+            Jadwal sholat bulanan ini dihitung secara presisi berdasarkan posisi astronomis geografis bumi oleh Al-Waqt.<br>
+            Akurasi komparatif diverifikasi terhadap perhitungan orisinal Kemenag RI dan KHGT Muhammadiyah.<br>
+            © ${new Date().getFullYear()} Al-Waqt. Seluruh Hak Cipta Dilindungi.
+          </div>
+
+        </body>
+        </html>
+      `;
+
+      printWindow.document.open();
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+
+      setTimeout(function() {
+        printWindow.print();
+      }, 500);
+      return true;
+    };
+
     // Qibla Compass Web API Integration
     window.hasAbsoluteEvent = false;
     window.qiblaHeading = null;

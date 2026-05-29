@@ -1,4 +1,7 @@
+// ignore_for_file: avoid_web_libraries_in_flutter, deprecated_member_use
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'dart:js' as js;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -107,6 +110,108 @@ class _CalendarTabState extends ConsumerState<CalendarTab> {
     };
   }
 
+  /// Generate all prayer times for a full Hijri month based on settings and target Hijri Date
+  List<Map<String, dynamic>> _generateHijriMonthSchedule(HijriDate targetHijri, AppSettings settings) {
+    final List<Map<String, dynamic>> schedule = [];
+    
+    // Convert 1st day of target Hijri month to Gregorian as reference starting point
+    final DateTime estStart = HijriConverter.toGregorian(targetHijri.year, targetHijri.month, 1);
+    final DateTime scanStart = estStart.subtract(const Duration(days: 3));
+    
+    // Scan a 37-day range to catch all Gregorian dates corresponding to this Hijri month
+    for (int i = 0; i < 37; i++) {
+      final DateTime date = scanStart.add(Duration(days: i));
+      final hijri = HijriConverter.fromGregorian(date, settings.calcMethod, settings.hijriOffset, settings.isbatDateStr);
+      
+      if (hijri.year == targetHijri.year && hijri.month == targetHijri.month) {
+        final prayerTimes = _getPrayerTimesForDate(date, settings);
+        schedule.add({
+          'gregorianDate': date,
+          'hijriDate': hijri,
+          'prayers': prayerTimes,
+        });
+      }
+    }
+    
+    schedule.sort((a, b) => (a['gregorianDate'] as DateTime).compareTo(b['gregorianDate'] as DateTime));
+    return schedule;
+  }
+
+  /// Generates and triggers browser print window for the selected Hijri month
+  void _printHijriCalendar() {
+    if (!kIsWeb) return;
+
+    final settings = ref.read(settingsProvider);
+    final now = _selectedDate ?? DateTime.now();
+    final currentHijri = HijriConverter.fromGregorian(now, settings.calcMethod, settings.hijriOffset, settings.isbatDateStr);
+    
+    final schedule = _generateHijriMonthSchedule(currentHijri, settings);
+    
+    final String title = 'JADWAL SHOLAT BULANAN';
+    final String subtitle = '${currentHijri.monthName.toUpperCase()} ${currentHijri.year} H';
+    
+    final String locationName = settings.locationMode == LocationMode.preset
+        ? settings.selectedCity
+        : settings.locationMode == LocationMode.gps
+            ? (settings.gpsLocationName ?? 'Auto GPS')
+            : 'Koordinat Kustom (${settings.customLatitude.toStringAsFixed(4)}, ${settings.customLongitude.toStringAsFixed(4)})';
+            
+    final String calcMethod = settings.calcMethod == CalcMethod.kemenag 
+        ? 'Kemenag RI (MABIMS / 23 derajat)' 
+        : 'Muhammadiyah (KHGT / 18 derajat)';
+
+    final List<String> columns = [
+      'Hari',
+      'Hijriah',
+      'Masehi',
+      'Imsak',
+      'Subuh',
+      'Syuruq',
+      'Dzuhur',
+      'Ashar',
+      'Maghrib',
+      'Isya',
+      'Keterangan'
+    ];
+
+    final timeFormatter = DateFormat('HH:mm');
+    final dateFormatter = DateFormat('d MMM yyyy', 'id_ID');
+
+    final List<Map<String, dynamic>> rows = schedule.map((item) {
+      final DateTime gregDate = item['gregorianDate'] as DateTime;
+      final HijriDate hijriDate = item['hijriDate'] as HijriDate;
+      final Map<String, DateTime> prayers = item['prayers'] as Map<String, DateTime>;
+      
+      final String dayName = DateFormat('EEEE', 'id_ID').format(gregDate);
+      final bool isWeekend = dayName == 'Sabtu' || dayName == 'Minggu';
+
+      return {
+        'dayName': dayName,
+        'hijriDate': '${hijriDate.day} ${hijriDate.monthName}',
+        'gregorianDate': dateFormatter.format(gregDate),
+        'imsak': timeFormatter.format(prayers['Imsak']!),
+        'subuh': timeFormatter.format(prayers['Subuh']!),
+        'syuruq': timeFormatter.format(prayers['Syuruq']!),
+        'dzuhur': timeFormatter.format(prayers['Dzuhur']!),
+        'ashar': timeFormatter.format(prayers['Ashar']!),
+        'maghrib': timeFormatter.format(prayers['Maghrib']!),
+        'isya': timeFormatter.format(prayers['Isya']!),
+        'keterangan': hijriDate.islamicEvent ?? '',
+        'isSpecial': hijriDate.isSpecialDay,
+        'isWeekend': isWeekend,
+      };
+    }).toList();
+
+    js.context.callMethod('printHijriCalendar', [
+      title,
+      subtitle,
+      locationName,
+      calcMethod,
+      js.JsObject.jsify(columns),
+      js.JsObject.jsify(rows),
+    ]);
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
@@ -204,6 +309,43 @@ class _CalendarTabState extends ConsumerState<CalendarTab> {
               ),
             ),
             const SizedBox(height: 16),
+
+            // Print action button (Web only)
+            if (kIsWeb) ...[
+              Align(
+                alignment: Alignment.centerRight,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 12.0),
+                  child: InkWell(
+                    onTap: _printHijriCalendar,
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0C1913).withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFD4AF37).withValues(alpha: 0.2)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.print_rounded, color: Color(0xFFD4AF37), size: 16),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Cetak Jadwal Bulanan (${hijriFirstDay.monthName})',
+                            style: GoogleFonts.plusJakartaSans(
+                              color: const Color(0xFFD4AF37),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
 
             // ═══════════════════════════════════════════════════
             // DAY-OF-WEEK HEADER ROW
