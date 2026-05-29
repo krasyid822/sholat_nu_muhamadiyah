@@ -1,7 +1,5 @@
 # sholat_nu_muhamadiyah
-
 Flutter app jadwal sholat NU & Muhammadiyah.
-
 Catatan: Firebase Web API key tetap bisa terlihat di bundle web saat app dipublish. Lindungi dari sisi Firebase/Google Cloud dengan API key restrictions, authorized domains, dan Firebase Security Rules.
 
 ## Cara Deploy
@@ -30,8 +28,7 @@ firebase deploy --only hosting
 http://localhost:8888/)
 
 ## Catatan
-google adsense
+- Jika pub busuk silahkan buat kode web native saja dan pastikan tambah “native activation button” di HTML yang 100% trusted gesture, lalu Flutter tinggal menampilkan status aktifnya.
 
-jika pub busuk silahkan buat kode web native saja dan pastikan tambah “native activation button” di HTML yang 100% trusted gesture, lalu Flutter tinggal menampilkan status aktifnya.
-
-ada masalah kompas tidak bisa diaktifkan kembali setelah pindah halaman
+## Mendatang
+- Sisipkan buat halaman khusus untuk Google AdSense
