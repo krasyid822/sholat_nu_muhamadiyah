@@ -3,14 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:js' as js;
 import '../providers/settings_provider.dart';
 import '../models/app_settings.dart';
 import '../data/cities.dart';
 import '../utils/hijri_converter.dart';
 import '../config/app_version.dart';
-import 'dev_menu.dart';
 
 class SettingsTab extends ConsumerStatefulWidget {
   const SettingsTab({super.key});
@@ -106,83 +103,7 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
     }
   }
 
-  Future<void> _reloadWebCache() async {
-    if (!kIsWeb) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Fitur reload cache hanya tersedia di Flutter Web.',
-            style: GoogleFonts.plusJakartaSans(color: Colors.white),
-          ),
-          backgroundColor: Colors.orange.shade700,
-        ),
-      );
-      return;
-    }
 
-    final bool? confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF0C1913),
-          title: Text(
-            'Reload Cache Aplikasi?',
-            style: GoogleFonts.plusJakartaSans(
-              color: const Color(0xFFD4AF37),
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          content: Text(
-            'Tindakan ini akan membersihkan cache dan service worker, lalu memuat ulang aplikasi agar update terbaru segera aktif.',
-            style: GoogleFonts.plusJakartaSans(color: Colors.white70, fontSize: 13),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: Text(
-                'Batal',
-                style: GoogleFonts.plusJakartaSans(color: Colors.white54),
-              ),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFD4AF37),
-                foregroundColor: Colors.black,
-              ),
-              child: Text(
-                'Reload Sekarang',
-                style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirm != true || !mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Membersihkan cache dan memuat ulang aplikasi...',
-          style: GoogleFonts.plusJakartaSans(color: Colors.white),
-        ),
-        backgroundColor: const Color(0xFF0F5A3E),
-      ),
-    );
-
-    try {
-      if (js.context['forceRefreshAppCache'] != null) {
-        js.context.callMethod('forceRefreshAppCache');
-      } else {
-        js.context['location'].callMethod('reload');
-      }
-    } catch (_) {
-      js.context['location'].callMethod('reload');
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -426,12 +347,14 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                             ),
                           ),
                           const SizedBox(height: 8),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            alignment: WrapAlignment.center,
                             children: [
-                              _buildOffsetChip(context, -1, 'Tidak: -1 Hari'),
+                              _buildOffsetChip(context, -1, '-1 Hari'),
                               _buildOffsetChip(context, 0, 'Ya, benar'),
-                              _buildOffsetChip(context, 1, 'Tidak: +1 Hari'),
+                              _buildOffsetChip(context, 1, '+1 Hari'),
                             ],
                           ),
                           const SizedBox(height: 16),
@@ -1089,26 +1012,7 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                         ref.read(settingsProvider.notifier).setKeepScreenOn(val);
                       },
                     ),
-                    Divider(color: Colors.white.withValues(alpha: 0.05), height: 1),
-                    ListTile(
-                      leading: const Icon(Icons.refresh_rounded, color: Color(0xFFD4AF37)),
-                      title: Text(
-                        'Reload Cache Aplikasi (Web)',
-                        style: GoogleFonts.plusJakartaSans(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      subtitle: Text(
-                        'Paksa update terbaru tanpa menunggu sinkronisasi service worker.',
-                        style: GoogleFonts.plusJakartaSans(
-                          color: Colors.white38,
-                          fontSize: 11,
-                        ),
-                      ),
-                      onTap: _reloadWebCache,
-                    ),
+
                   ],
                 ),
               ),
@@ -1188,28 +1092,7 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
                 ),
               ),
               const SizedBox(height: 32),
-              OutlinedButton.icon(
-                onPressed: _showDeveloperMenu,
-                icon: const Icon(Icons.developer_mode_rounded, size: 18),
-                label: Text(
-                  'Buka Dev Menu',
-                  style: GoogleFonts.plusJakartaSans(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                  ),
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFFD4AF37),
-                  side: BorderSide(
-                    color: const Color(0xFFD4AF37).withValues(alpha: 0.35),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
+
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
                 child: Center(
@@ -1231,60 +1114,7 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
     );
   }
 
-  void _showDeveloperMenu() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFF0C1913),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return SizedBox(
-          height: MediaQuery.of(context).size.height * 0.85,
-          child: Column(
-            children: [
-              // Pull Bar
-              Container(
-                margin: const EdgeInsets.symmetric(vertical: 12),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.white24,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              // Close row
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Menu Pengembang',
-                      style: GoogleFonts.outfit(
-                        color: const Color(0xFFD4AF37),
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white70),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(color: Colors.white12, height: 1),
-              const Expanded(
-                child: DevMenu(),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
+
 
   Widget _buildSettingsCard({
     required String title,

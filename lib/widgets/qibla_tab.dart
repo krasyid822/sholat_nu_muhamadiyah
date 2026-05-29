@@ -156,9 +156,11 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
         return;
       }
 
-      // Show native HTML activation control so sensor permission is requested from
-      // a direct DOM click (trusted user gesture), especially for iOS Safari/WebKit.
-      if (js.context['showArActivationOverlay'] != null) {
+      // Direct call to startHardware using Flutter click user-gesture context.
+      // This immediately triggers the browser permission dialogs without requiring a second click on the HTML overlay.
+      if (js.context['startHardware'] != null) {
+        js.context.callMethod('startHardware');
+      } else if (js.context['showArActivationOverlay'] != null) {
         js.context.callMethod('showArActivationOverlay');
       }
       _beginNativeActivationWatcher();

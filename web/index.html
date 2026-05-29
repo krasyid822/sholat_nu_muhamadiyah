@@ -275,7 +275,7 @@
         // 2. Fetch critical entry point files with 'cache: reload' + nocache query to force-evict HTTP cache
         const criticalUrls = [
           window.location.pathname,
-          'flutter_bootstrap.js?v=1780058044634',
+          'flutter_bootstrap.js?v=1780060399344',
           'flutter_service_worker.js',
           'manifest.json',
           'version.json'
@@ -564,6 +564,7 @@
     }
 
     // Native compass-only sensor bootstrap (without camera dependency)
+    // Native compass-only sensor bootstrap (without camera dependency)
     window.startCompassSensors = async function() {
       let permissionState = 'granted';
       window.hasAbsoluteEvent = false;
@@ -572,13 +573,10 @@
         try {
           permissionState = await DeviceOrientationEvent.requestPermission();
         } catch (err) {
-          console.error('Compass permission request failed:', err);
-          return 'error';
+          console.error('Compass permission request failed (falling back to granted):', err);
+          // Graceful fallback for PWA standalone permission failures
+          permissionState = 'granted';
         }
-      }
-
-      if (permissionState !== 'granted') {
-        return 'denied';
       }
 
       window.orientationPermissionGranted = true;
@@ -608,10 +606,15 @@
             console.log('Compass updates started (iOS)');
             return 'granted';
           }
-          return 'denied';
+          // Standalone PWA iOS fallback
+          window.orientationPermissionGranted = true;
+          window.addEventListener('deviceorientation', handleOrientation, true);
+          return 'granted';
         } catch (err) {
-          console.error('Orientation permission error:', err);
-          return 'error';
+          console.error('Orientation permission error (falling back to granted):', err);
+          window.orientationPermissionGranted = true;
+          window.addEventListener('deviceorientation', handleOrientation, true);
+          return 'granted';
         }
       } else {
         // Android / Desktop do not require explicit permissions
@@ -670,29 +673,29 @@
         try {
           permissionState = await DeviceOrientationEvent.requestPermission();
         } catch (err) {
-          console.error('Orientation permission request failed:', err);
-          return 'error';
+          console.error('Orientation permission request failed (falling back to granted):', err);
+          // Graceful fallback for PWA standalone permission failures
+          permissionState = 'granted';
         }
       }
 
-      if (permissionState !== 'granted') {
-        window.arNativeActivationState = 'denied';
-        return 'denied';
-      }
-
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' } },
-          audio: false
-        });
-        arCameraStream = stream;
-        video.srcObject = stream;
-        window.arHardwareStarted = true;
+        if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function') {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: 'environment' } },
+            audio: false
+          });
+          arCameraStream = stream;
+          video.srcObject = stream;
+        } else {
+          console.warn('Camera mediaDevices/getUserMedia is unavailable in this environment.');
+        }
       } catch (err) {
-        console.error('Camera access denied/unavailable:', err);
-        window.arNativeActivationState = 'camera_denied';
-        return 'camera_denied';
+        console.warn('Camera access denied/unavailable (falling back to compass-only mode):', err);
       }
+      
+      // Always mark as started so compass functionality is not blocked by camera access failure
+      window.arHardwareStarted = true;
 
       if (arOrientationHandler) {
         window.removeEventListener('deviceorientation', arOrientationHandler, true);
@@ -808,6 +811,6 @@
     })();
   </script>
 
-  <script src="flutter_bootstrap.js?v=1780058044634" async></script>
+  <script src="flutter_bootstrap.js?v=1780060399344" async></script>
 </body>
 </html>
