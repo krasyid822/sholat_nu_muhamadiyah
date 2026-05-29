@@ -63,14 +63,32 @@ Future<void> _configureWebPushMessaging() async {
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       // Keep a foreground listener alive so web PWA receives data while open.
       final notification = message.notification;
-      final title = notification?.title ?? 'Al-Waqt';
-      final body = notification?.body ?? 'Ada notifikasi baru.';
+      final title = notification?.title ?? message.data['title'] ?? 'Al-Waqt';
+      final body = notification?.body ?? message.data['body'] ?? 'Ada notifikasi baru.';
       debugPrint('[FCM Foreground] $title - $body');
+
+      // Determine sound type (Adzan for simulated/real prayer time notifications, Beep for others)
+      String soundType = 'beep';
+      final lowercaseTitle = title.toLowerCase();
+      final lowercaseBody = body.toLowerCase();
+      
+      final isPrayerTime = lowercaseTitle.contains('waktu') && 
+          (lowercaseTitle.contains('subuh') || 
+           lowercaseTitle.contains('dzuhur') || 
+           lowercaseTitle.contains('ashar') || 
+           lowercaseTitle.contains('maghrib') || 
+           lowercaseTitle.contains('isya') ||
+           lowercaseBody.contains('shalat') ||
+           lowercaseBody.contains('sholat'));
+           
+      if (isPrayerTime) {
+        soundType = 'adzan';
+      }
 
       // Trigger native browser system notification for foreground messages
       try {
         js.context.callMethod('showLocalNotification', [title, body]);
-        js.context.callMethod('playNotificationSound', ['beep']);
+        js.context.callMethod('playNotificationSound', [soundType]);
       } catch (e) {
         debugPrint('Failed to show native browser notification: $e');
       }

@@ -32,7 +32,8 @@
     ],
     "predeploy": [
       "dart tool/bump_version.dart",
-      "flutter build web --release"
+      "flutter build web --release",
+      "dart tool/post_build.dart"
     ],
     "rewrites": [
       {

@@ -21,6 +21,13 @@ cukup dengan
 ```pwsh
 firebase deploy --only hosting
 ```
+## Cara run ke ponsel
+1. Connect ke usb debugging
+2. flutter run -d web-server --web-port 8888
+3. adb reverse tcp:8888 tcp:8888
+4. Buka http://localhost:8888 di browser ponsel (Chromium)
+5. Open url edge://inspect/#devices di desktop untuk Inspect (Sholat NU & Muhammadiyah
+http://localhost:8888/)
 
 ## Catatan
 google adsense

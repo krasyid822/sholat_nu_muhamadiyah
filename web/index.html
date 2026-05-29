@@ -115,52 +115,105 @@
 
     window.showLocalNotification = function(title, body) {
       if (!('Notification' in window) || Notification.permission !== 'granted') return;
-      try {
-        navigator.serviceWorker.ready.then((registration) => {
-          registration.showNotification(title, {
-            body: body,
-            icon: 'icons/Icon-192.png',
-            badge: 'icons/Icon-192.png',
-            vibrate: [200, 100, 200]
-          });
+      
+      const options = {
+        body: body,
+        icon: 'icons/Icon-192.png',
+        badge: 'icons/Icon-192.png',
+        vibrate: [200, 100, 200]
+      };
+
+      // 1. Try to find any active Service Worker registration (extremely robust on all devices)
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then((registrations) => {
+          const activeReg = registrations.find(reg => reg.active);
+          if (activeReg) {
+            activeReg.showNotification(title, options);
+            console.log('[Notification] Triggered via active Service Worker:', activeReg.scope);
+          } else {
+            // No active registration found, try legacy fallback
+            triggerLegacyNotification(title, options);
+          }
+        }).catch((err) => {
+          console.warn('[Notification] SW getRegistrations failed, trying legacy:', err);
+          triggerLegacyNotification(title, options);
         });
-      } catch (e) {
-        new Notification(title, { body: body, icon: 'icons/Icon-192.png' });
+      } else {
+        triggerLegacyNotification(title, options);
+      }
+
+      function triggerLegacyNotification(title, options) {
+        try {
+          new Notification(title, options);
+          console.log('[Notification] Triggered via legacy constructor');
+        } catch (e) {
+          console.warn('[Notification] Legacy constructor blocked (Illegal constructor on Android):', e);
+        }
       }
     };
 
     window.playNotificationSound = function(soundType) {
       try {
-        let soundUrl = '';
         if (soundType === 'adzan') {
-          // A beautiful, highly reliable Adzan audio file
-          soundUrl = 'https://www.islamcan.com/audio/adhan/azan1.mp3';
+          const soundUrl = 'azan.mp3';
+          const audio = new Audio(soundUrl);
+          audio.volume = 0.7;
+          audio.play().catch((err) => {
+            console.log('Audio autoplay blocked or failed:', err);
+          });
         } else {
-          // A pleasant, high-quality notification chime/beep
-          soundUrl = 'https://assets.mixkit.co/active_storage/sfx/2869/2869-84.wav';
+          // Premium Web Audio API Synthesized chime - 100% reliable, works offline, zero network requests
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (AudioContext) {
+            const audioCtx = new AudioContext();
+            
+            // First chime tone (high and sweet)
+            const osc1 = audioCtx.createOscillator();
+            const gain1 = audioCtx.createGain();
+            osc1.type = 'sine';
+            osc1.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
+            gain1.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            gain1.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.2);
+            
+            osc1.connect(gain1);
+            gain1.connect(audioCtx.destination);
+            osc1.start();
+            osc1.stop(audioCtx.currentTime + 0.2);
+            
+            // Second chime tone (warm and resonant, slightly delayed)
+            setTimeout(() => {
+              const osc2 = audioCtx.createOscillator();
+              const gain2 = audioCtx.createGain();
+              osc2.type = 'sine';
+              osc2.frequency.setValueAtTime(659.25, audioCtx.currentTime); // E5 note
+              gain2.gain.setValueAtTime(0.2, audioCtx.currentTime);
+              gain2.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+              
+              osc2.connect(gain2);
+              gain2.connect(audioCtx.destination);
+              osc2.start();
+              osc2.stop(audioCtx.currentTime + 0.3);
+            }, 100);
+            
+            console.log('[Audio] Played synthetic notification chime');
+          } else {
+            console.warn('[Audio] Web Audio API not supported');
+          }
         }
-        
-        const audio = new Audio(soundUrl);
-        // Set lower volume by default so it's not overly loud
-        audio.volume = soundType === 'adzan' ? 0.7 : 0.5;
-        audio.play().catch((err) => {
-          console.log('Audio autoplay blocked or failed:', err);
-        });
       } catch (e) {
         console.error('Failed to play audio:', e);
       }
     };
 
-    // Register Firebase Messaging service worker explicitly so web push
-    // can be delivered while app is in background/closed on mobile browser.
+    // Register on a separate scope to prevent conflicts with Flutter PWA service worker while ensuring an active registration exists.
     window.registerFirebaseMessagingSW = async function() {
       if (!('serviceWorker' in navigator)) return false;
       try {
         const registration = await navigator.serviceWorker.register(
           'firebase-messaging-sw.js',
-          { scope: '/' }
+          { scope: '/firebase-cloud-messaging-push-scope' }
         );
-        console.log('Firebase messaging service worker registered:', registration.scope);
+        console.log('Firebase messaging service worker registered on custom scope:', registration.scope);
         return true;
       } catch (error) {
         console.error('Failed to register firebase-messaging-sw.js:', error);
@@ -208,10 +261,21 @@
           await Promise.all(keys.map((key) => caches.delete(key)));
         }
 
+        // 2. Clear Firebase Messaging IndexedDB to force-evict old FCM tokens
+        if ('indexedDB' in window) {
+          try {
+            window.indexedDB.deleteDatabase('firebase-messaging-database');
+            window.indexedDB.deleteDatabase('fcm_token_details_db');
+            console.log('Firebase Messaging IndexedDB cleared.');
+          } catch (e) {
+            console.warn('Failed to clear FCM IndexedDB:', e);
+          }
+        }
+
         // 2. Fetch critical entry point files with 'cache: reload' + nocache query to force-evict HTTP cache
         const criticalUrls = [
           window.location.pathname,
-          'flutter_bootstrap.js?v=1780044715229',
+          'flutter_bootstrap.js?v=1780058044634',
           'flutter_service_worker.js',
           'manifest.json',
           'version.json'
@@ -682,7 +746,7 @@
       return true;
     };
 
-    // Fire and forget; keeps web push infrastructure ready as early as possible.
+    // Register the Firebase messaging service worker on a separate scope on load to ensure robust local debug notifications.
     window.registerFirebaseMessagingSW();
   </script>
 </head>
@@ -744,6 +808,6 @@
     })();
   </script>
 
-  <script src="flutter_bootstrap.js?v=1780044715229" async></script>
+  <script src="flutter_bootstrap.js?v=1780058044634" async></script>
 </body>
 </html>

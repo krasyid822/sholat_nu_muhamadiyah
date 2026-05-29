@@ -177,7 +177,7 @@ class _DevMenuState extends State<DevMenu> {
     
     try {
       // Production region-based function URL for V2 (defaults to us-central1)
-      final functionUrl = 'https://testpushnotification-al-waqt-9cdb7.uw.a.run.app';
+      final functionUrl = 'https://testpushnotification-al-waqt-9cdb7-uc.a.run.app';
       final fallbackUrl = 'https://us-central1-al-waqt-9cdb7.cloudfunctions.net/testPushNotification';
       
       var targetUrl = functionUrl;
@@ -231,7 +231,7 @@ class _DevMenuState extends State<DevMenu> {
     setState(() => _isLoading = true);
     
     try {
-      final targetUrl = 'https://simulatescheduler-al-waqt-9cdb7.uw.a.run.app';
+      final targetUrl = 'https://simulatescheduler-al-waqt-9cdb7-uc.a.run.app';
       final fallbackUrl = 'https://us-central1-al-waqt-9cdb7.cloudfunctions.net/simulateScheduler';
       
       // Let's perform POST request
