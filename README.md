@@ -31,4 +31,4 @@ http://localhost:8888/)
 - Jika pub busuk silahkan buat kode web native saja dan pastikan tambah “native activation button” di HTML yang 100% trusted gesture, lalu Flutter tinggal menampilkan status aktifnya.
 
 ## Mendatang
-- Sisipkan buat halaman khusus untuk Google AdSense
+- Tambahkan halaman khusus untuk Google AdSense
