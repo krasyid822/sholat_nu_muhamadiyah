@@ -78,10 +78,11 @@ Mendukung `GET` (Query parameter) dan `POST` (JSON Body).
 }
 ```
 
-## Catatan
-google adsense
-
 ### Done
 jika pub busuk silahkan buat kode web native saja dan pastikan tambah “native activation button” di HTML yang 100% trusted gesture, lalu Flutter tinggal menampilkan status aktifnya.
 
 ada masalah kompas tidak bisa diaktifkan kembali setelah pindah halaman
+
+google adsense
+
+## Catatan
