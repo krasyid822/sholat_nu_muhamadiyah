@@ -241,10 +241,18 @@ exports.simulateScheduler = onRequest({ cors: true }, async (req, res) => {
       Isya: prayerTimes.isha
     };
 
-    const targetTime = times[prayerName];
-    if (!targetTime) {
-      res.status(400).send(`Invalid prayerName: ${prayerName}`);
-      return;
+    let targetTime;
+    switch (prayerName) {
+      case "Imsak": targetTime = times.Imsak; break;
+      case "Subuh": targetTime = times.Subuh; break;
+      case "Syuruq": targetTime = times.Syuruq; break;
+      case "Dzuhur": targetTime = times.Dzuhur; break;
+      case "Ashar": targetTime = times.Ashar; break;
+      case "Maghrib": targetTime = times.Maghrib; break;
+      case "Isya": targetTime = times.Isya; break;
+      default:
+        res.status(400).send(`Invalid prayerName: ${prayerName}`);
+        return;
     }
 
     const title = `Waktu ${prayerName} Telah Tiba (Simulasi)`;
@@ -325,3 +333,229 @@ exports.unsubscribeFromTopic = onRequest({ cors: true }, async (req, res) => {
     res.status(500).send({ error: error.message });
   }
 });
+
+const monthNames = [
+  "Muharram", "Safar", "Rabiul Awal", "Rabiul Akhir", "Jumadil Awal", "Jumadil Akhir",
+  "Rajab", "Sya'ban", "Ramadhan", "Syawal", "Dzulqadah", "Dzulhijjah"
+];
+const shortMonthNames = [
+  "Muh", "Saf", "Rb1", "Rb2", "Jm1", "Jm2", "Raj", "Syb", "Ram", "Syw", "Dzq", "Dzh"
+];
+
+function getMonthName(month) {
+  switch (month) {
+    case 1: return "Muharram";
+    case 2: return "Safar";
+    case 3: return "Rabiul Awal";
+    case 4: return "Rabiul Akhir";
+    case 5: return "Jumadil Awal";
+    case 6: return "Jumadil Akhir";
+    case 7: return "Rajab";
+    case 8: return "Sya'ban";
+    case 9: return "Ramadhan";
+    case 10: return "Syawal";
+    case 11: return "Dzulqadah";
+    case 12: return "Dzulhijjah";
+    default: return "";
+  }
+}
+
+function getShortMonthName(month) {
+  switch (month) {
+    case 1: return "Muh";
+    case 2: return "Saf";
+    case 3: return "Rb1";
+    case 4: return "Rb2";
+    case 5: return "Jm1";
+    case 6: return "Jm2";
+    case 7: return "Raj";
+    case 8: return "Syb";
+    case 9: return "Ram";
+    case 10: return "Syw";
+    case 11: return "Dzq";
+    case 12: return "Dzh";
+    default: return "";
+  }
+}
+
+function getIslamicEvent(month, day) {
+  if (month === 1 && day === 1) return "Tahun Baru Islam";
+  if (month === 1 && day === 10) return "Hari Asyura";
+  if (month === 3 && day === 12) return "Maulid Nabi ﷺ";
+  if (month === 7 && day === 27) return "Isra Mi'raj";
+  if (month === 8 && day === 15) return "Nisfu Sya'ban";
+  if (month === 9 && day === 1) return "Awal Ramadhan";
+  if (month === 9 && day === 17) return "Nuzulul Qur'an";
+  if (month === 10 && day === 1) return "Idul Fitri";
+  if (month === 10 && day === 2) return "Idul Fitri (Hari 2)";
+  if (month === 12 && day === 9) return "Hari Arafah";
+  if (month === 12 && day === 10) return "Idul Adha";
+  if (month === 12 && day === 11) return "Hari Tasyrik";
+  if (month === 12 && day === 12) return "Hari Tasyrik";
+  if (month === 12 && day === 13) return "Hari Tasyrik";
+  return null;
+}
+
+function getMoonAge(date) {
+  const epoch = Date.UTC(2000, 0, 6, 18, 14, 0);
+  const diffInMs = date.getTime() - epoch;
+  const diffInDays = diffInMs / (1000 * 60 * 60 * 24);
+  const lunations = diffInDays / 29.530588853;
+  const fractional = lunations - Math.floor(lunations);
+  return fractional * 29.530588853;
+}
+
+function fromGregorianTabular(date) {
+  const day = date.getDate();
+  let month = date.getMonth() + 1;
+  let year = date.getFullYear();
+
+  if (month < 3) {
+    year -= 1;
+    month += 12;
+  }
+
+  const a = Math.floor(year / 100);
+  let b = 2 - a + Math.floor(a / 4);
+  if (year < 1583) b = 0;
+
+  const jd = Math.floor(365.25 * (year + 4716)) +
+      Math.floor(30.6001 * (month + 1)) +
+      day +
+      b -
+      1524;
+
+  const epochastro = 1948084;
+  const z = jd - epochastro;
+  const cyc = Math.floor(z / 10631);
+  const zRem = z - 10631 * cyc;
+  const j = Math.floor((zRem - 8.01 / 60) / 354.36667);
+  const iy = 30 * cyc + j;
+
+  const zRem2 = zRem - Math.floor(j * 354.36667 + 8.5 / 30);
+  let im = Math.floor((zRem2 + 28.5001) / 29.5);
+  if (im === 13) im = 12;
+  const id = zRem2 - Math.floor(im * 29.5 - 28.99);
+
+  return { year: iy, month: im, day: id };
+}
+
+function convertGregorianToHijri(date, method, offset = 0, isbatDateStr = null) {
+  const standard = fromGregorianTabular(date);
+
+  // Find the 1st day of this Hijri month in standard tabular (subtract standard.day - 1 days)
+  const firstDayOfHijriMonth = new Date(date.getTime() - (standard.day - 1) * 24 * 60 * 60 * 1000);
+
+  const ageAtStart = getMoonAge(firstDayOfHijriMonth);
+
+  let adjustment = 0;
+
+  if (ageAtStart > 29.0) {
+    adjustment = -1;
+  }
+
+  if (method === "kemenag") {
+    const checkDate = ageAtStart > 29.0
+        ? new Date(firstDayOfHijriMonth.getTime() + 24 * 60 * 60 * 1000)
+        : firstDayOfHijriMonth;
+
+    const checkAge = getMoonAge(checkDate);
+
+    if (checkAge < 0.35) {
+      adjustment -= 1;
+    }
+  }
+
+  let activeOffset = 0;
+  if (method === "kemenag" && isbatDateStr && offset !== 0) {
+    try {
+      const isbatDate = new Date(isbatDateStr);
+      const isbatHijri = fromGregorianTabular(isbatDate);
+      if (standard.year === isbatHijri.year && standard.month === isbatHijri.month) {
+        activeOffset = offset;
+      }
+    } catch (_) {}
+  }
+
+  const finalAdjustment = adjustment + activeOffset;
+  if (finalAdjustment !== 0) {
+    const adjustedDate = new Date(date.getTime() + finalAdjustment * 24 * 60 * 60 * 1000);
+    return fromGregorianTabular(adjustedDate);
+  }
+
+  return standard;
+}
+
+/**
+ * HTTP endpoint exposing the precise Hijri Calendar converter for other webapps.
+ */
+exports.getHijriCalendar = onRequest({ cors: true }, async (req, res) => {
+  const { date, method, offset, isbatDate } = req.method === "POST" ? req.body : req.query;
+
+  try {
+    let parsedDate = new Date();
+    if (date) {
+      parsedDate = new Date(date);
+      if (isNaN(parsedDate.getTime())) {
+        res.status(400).send({ error: "Invalid date parameter format" });
+        return;
+      }
+    }
+
+    const calcMethod = (method === "muhammadiyah") ? "muhammadiyah" : "kemenag";
+    const dayOffset = offset ? parseInt(offset) : 0;
+    
+    if (isNaN(dayOffset)) {
+      res.status(400).send({ error: "Offset parameter must be an integer" });
+      return;
+    }
+
+    const hijri = convertGregorianToHijri(parsedDate, calcMethod, dayOffset, isbatDate);
+    
+    if (typeof hijri.month !== "number" || hijri.month < 1 || hijri.month > 12) {
+      res.status(500).send({ error: "Calculated Hijri month is out of range" });
+      return;
+    }
+    
+    const mName = getMonthName(hijri.month);
+    const sName = getShortMonthName(hijri.month);
+    const event = getIslamicEvent(hijri.month, hijri.day);
+
+    res.status(200).send({
+      success: true,
+      gregorianDate: parsedDate.toISOString(),
+      hijri: {
+        year: hijri.year,
+        month: hijri.month,
+        day: hijri.day,
+        monthName: mName,
+        shortMonthName: sName,
+        formatted: `${hijri.day} ${mName} ${hijri.year} H`,
+        islamicEvent: event,
+        isSpecialDay: event !== null
+      },
+      params: {
+        method: calcMethod,
+        offset: dayOffset,
+        isbatDate: isbatDate || null
+      }
+    });
+  } catch (error) {
+    res.status(500).send({ error: error.message });
+  }
+});
+
+/**
+ * HTTP endpoint returning the current server time (UTC and WIB formatted).
+ */
+exports.getServerTime = onRequest({ cors: true }, async (req, res) => {
+  const now = new Date();
+  res.status(200).send({
+    success: true,
+    utcTime: now.toISOString(),
+    epoch: now.getTime(),
+    formatted: now.toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) + " (WIB)"
+  });
+});
+
+

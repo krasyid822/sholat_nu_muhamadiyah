@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:web_compass/web_compass.dart';
 import '../providers/settings_provider.dart';
 import '../models/app_settings.dart';
 import '../data/cities.dart';
@@ -29,9 +30,9 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
   bool _isVerticalMode = false;
   double _qiblaBearing = 0.0;
   double _distanceToMecca = 0.0;
-  Timer? _sensorTimer;
-  Timer? _activationTimer;
   String? _sensorError;
+  double _rawPitch = 75.0;
+  StreamSubscription<CompassEvent>? _compassSubscription;
 
   late AnimationController _glowController;
   late Animation<double> _glowAnimation;
@@ -60,18 +61,8 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
 
   @override
   void dispose() {
-    _sensorTimer?.cancel();
-    _activationTimer?.cancel();
+    _compassSubscription?.cancel();
     _glowController.dispose();
-    try {
-      js.context.callMethod('stopHardware');
-    } catch (_) {}
-    try {
-      js.context.callMethod('stopCompassSensors');
-    } catch (_) {}
-    try {
-      js.context.callMethod('stopOrientationUpdates');
-    } catch (_) {}
     super.dispose();
   }
 
@@ -156,14 +147,22 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
         return;
       }
 
-      // Direct call to startHardware using Flutter click user-gesture context.
-      // This immediately triggers the browser permission dialogs without requiring a second click on the HTML overlay.
-      if (js.context['startHardware'] != null) {
-        js.context.callMethod('startHardware');
-      } else if (js.context['showArActivationOverlay'] != null) {
-        js.context.callMethod('showArActivationOverlay');
+      final permissionGranted = await WebCompass.requestPermission();
+      if (permissionGranted) {
+        if (mounted) {
+          setState(() {
+            _sensorsInitialized = true;
+            _sensorError = null;
+          });
+        }
+        _startSensorListening();
+      } else {
+        if (mounted) {
+          setState(() {
+            _sensorError = 'Izin sensor kompas ditolak. Silakan aktifkan di pengaturan browser Anda.';
+          });
+        }
       }
-      _beginNativeActivationWatcher();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -171,36 +170,6 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
         });
       }
     }
-  }
-
-  void _beginNativeActivationWatcher() {
-    _activationTimer?.cancel();
-    _activationTimer = Timer.periodic(const Duration(milliseconds: 300), (timer) {
-      if (!mounted) return;
-      try {
-        final bool started = js.context['arHardwareStarted'] == true;
-        final String nativeState = js.context['arNativeActivationState']?.toString() ?? 'idle';
-
-        if (started) {
-          timer.cancel();
-          _activationTimer = null;
-          if (!_sensorsInitialized) {
-            setState(() {
-              _sensorsInitialized = true;
-              _sensorError = null;
-            });
-            _startSensorPolling();
-          }
-          return;
-        }
-
-        if (nativeState == 'denied' || nativeState == 'camera_denied' || nativeState == 'error') {
-          setState(() {
-            _sensorError = 'Izin kamera/kompas ditolak. Tekan ulang tombol aktivasi pada overlay kamera.';
-          });
-        }
-      } catch (_) {}
-    });
   }
 
   String? _validateWebCompassPrerequisites() {
@@ -219,7 +188,7 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
         return 'Gunakan HTTPS agar browser mengizinkan akses sensor orientasi/kompas.';
       }
 
-      if (js.context['DeviceOrientationEvent'] == null) {
+      if (!WebCompass.isSupported) {
         return 'Browser/perangkat ini tidak menyediakan DeviceOrientationEvent (sensor kompas tidak tersedia).';
       }
     } catch (_) {
@@ -228,41 +197,37 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
     return null;
   }
 
-  void _startSensorPolling() {
-    _sensorTimer?.cancel();
-    _sensorTimer = Timer.periodic(const Duration(milliseconds: 30), (timer) {
+  void _startSensorListening() {
+    _compassSubscription?.cancel();
+    _compassSubscription = WebCompass.onOrientationChanged.listen((event) {
       if (!mounted) return;
-      try {
-        final heading = js.context['qiblaHeading'];
-        if (heading != null) {
-          final double val = double.tryParse(heading.toString()) ?? 0.0;
-          final double pitch = double.tryParse((js.context['qiblaPitch'] ?? 0).toString()) ?? 0.0;
-          final double roll = double.tryParse((js.context['qiblaRoll'] ?? 0).toString()) ?? 0.0;
-          final double rawTilt = math.max(pitch.abs(), roll.abs());
-          
-          // Apply low-pass filter to make compass rotation buttery smooth
-          final double diff = val - _currentHeading;
-          // Handle 360-degree wrap around
-          final double filteredDiff = math.atan2(math.sin(diff * math.pi / 180.0), math.cos(diff * math.pi / 180.0)) * 180.0 / math.pi;
-          
-          if (mounted) {
-            final bool nextVertical = _isVerticalMode
-                ? rawTilt > 35.0
-                : rawTilt > 45.0;
-            setState(() {
-              _currentHeading = (_currentHeading + filteredDiff * 0.25) % 360.0;
-              _deviceTilt = (_deviceTilt * 0.7) + (rawTilt * 0.3);
-              _isVerticalMode = nextVertical;
-            });
-          }
+      
+      final double val = event.heading;
+      final double pitch = event.pitch;
+      final double roll = event.roll;
+      final double rawTilt = math.max(pitch.abs(), roll.abs());
+      
+      // Apply low-pass filter to make compass rotation buttery smooth
+      final double diff = val - _currentHeading;
+      // Handle 360-degree wrap around
+      final double filteredDiff = math.atan2(math.sin(diff * math.pi / 180.0), math.cos(diff * math.pi / 180.0)) * 180.0 / math.pi;
+      
+      final bool nextVertical = _isVerticalMode
+          ? rawTilt > 35.0
+          : rawTilt > 45.0;
 
-          // If phone is aligned within +/- 5 degrees of Qibla, trigger a haptic vibration
-          final double diffToQibla = (_currentHeading - _qiblaBearing).abs();
-          if (diffToQibla < 5.0 || diffToQibla > 355.0) {
-            _triggerHapticFeedback();
-          }
-        }
-      } catch (_) {}
+      setState(() {
+        _currentHeading = (_currentHeading + filteredDiff * 0.25) % 360.0;
+        _deviceTilt = (_deviceTilt * 0.7) + (rawTilt * 0.3);
+        _isVerticalMode = nextVertical;
+        _rawPitch = pitch;
+      });
+
+      // If phone is aligned within +/- 5 degrees of Qibla, trigger a haptic vibration
+      final double diffToQibla = (_currentHeading - _qiblaBearing).abs();
+      if (diffToQibla < 5.0 || diffToQibla > 355.0) {
+        _triggerHapticFeedback();
+      }
     });
   }
 
@@ -600,7 +565,7 @@ class _QiblaTabState extends ConsumerState<QiblaTab> with SingleTickerProviderSt
     final bool isVisible = diff.abs() <= (horizontalFOV / 2.0);
 
     // 3. Pitch calculation for vertical tracking (horizon)
-    final double rawPitch = double.tryParse((js.context['qiblaPitch'] ?? 75.0).toString()) ?? 75.0;
+    final double rawPitch = _rawPitch;
     final double pitchDiff = (rawPitch - 75.0).clamp(-25.0, 25.0);
     final double dy = pitchDiff * 8.0; // Corrected sign to fix reversed tilt!
 

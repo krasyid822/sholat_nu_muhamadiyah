@@ -363,8 +363,8 @@ class DashboardTab extends ConsumerWidget {
                 if (isImsak) {
                   prayerName = item['name'] as String;
                   icon = item['icon'] as IconData;
-                  isCurrent = false;
-                  isNext = false;
+                  isCurrent = now.isAfter(prayerState.imsakTime) && now.isBefore(today.fajr);
+                  isNext = prayerState.nextCountdownLabel == 'Imsak';
                 } else {
                   final prayer = item['prayer'] as Prayer;
                   prayerName = _getPrayerName(prayer);
@@ -378,34 +378,25 @@ class DashboardTab extends ConsumerWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(16),
-                    gradient: isImsak
+                    gradient: isCurrent
                         ? LinearGradient(
                             colors: [
-                              const Color(0xFF4A2E0B).withValues(alpha: 0.35),
-                              const Color(0xFF2A1A06).withValues(alpha: 0.45),
+                              const Color(0xFF0F5A3E).withValues(alpha: 0.85),
+                              const Color(0xFF063323).withValues(alpha: 0.95),
                             ],
                           )
-                        : isCurrent
-                            ? LinearGradient(
-                                colors: [
-                                  const Color(0xFF0F5A3E).withValues(alpha: 0.85),
-                                  const Color(0xFF063323).withValues(alpha: 0.95),
-                                ],
-                              )
-                            : LinearGradient(
-                                colors: [
-                                  Colors.white.withValues(alpha: 0.04),
-                                  Colors.white.withValues(alpha: 0.02),
-                                ],
-                              ),
+                        : LinearGradient(
+                            colors: [
+                              Colors.white.withValues(alpha: 0.04),
+                              Colors.white.withValues(alpha: 0.02),
+                            ],
+                          ),
                     border: Border.all(
-                      color: isImsak
-                          ? const Color(0xFFD4AF37).withValues(alpha: 0.25)
-                          : isCurrent
-                              ? const Color(0xFFD4AF37).withValues(alpha: 0.4)
-                              : isNext 
-                                  ? Colors.white.withValues(alpha: 0.15)
-                                  : Colors.white.withValues(alpha: 0.05),
+                      color: isCurrent
+                          ? const Color(0xFFD4AF37).withValues(alpha: 0.4)
+                          : isNext 
+                              ? Colors.white.withValues(alpha: 0.15)
+                              : Colors.white.withValues(alpha: 0.05),
                       width: isCurrent ? 1.5 : 1.0,
                     ),
                     boxShadow: isCurrent
@@ -421,16 +412,7 @@ class DashboardTab extends ConsumerWidget {
                   child: Row(
                     children: [
                       // Active indicator glowing dot
-                      if (isImsak)
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE6C575).withValues(alpha: 0.6),
-                            shape: BoxShape.circle,
-                          ),
-                        )
-                      else if (isCurrent)
+                      if (isCurrent)
                         Container(
                           width: 8,
                           height: 8,
@@ -462,9 +444,7 @@ class DashboardTab extends ConsumerWidget {
                       // Icon
                       Icon(
                         icon,
-                        color: isImsak
-                            ? const Color(0xFFE6C575)
-                            : isCurrent ? const Color(0xFFD4AF37) : Colors.white60,
+                        color: isCurrent ? const Color(0xFFD4AF37) : Colors.white60,
                         size: 22,
                       ),
                       const SizedBox(width: 16),
@@ -473,32 +453,11 @@ class DashboardTab extends ConsumerWidget {
                       Text(
                         prayerName,
                         style: GoogleFonts.plusJakartaSans(
-                          color: isImsak
-                              ? const Color(0xFFE6C575)
-                              : isCurrent ? Colors.white : Colors.white70,
-                          fontSize: isImsak ? 14 : 16,
+                          color: isCurrent ? Colors.white : Colors.white70,
+                          fontSize: 16,
                           fontWeight: isCurrent ? FontWeight.bold : FontWeight.w600,
-                          fontStyle: isImsak ? FontStyle.italic : FontStyle.normal,
                         ),
                       ),
-                      if (isImsak) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFD4AF37).withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            '-10 min',
-                            style: GoogleFonts.plusJakartaSans(
-                              color: const Color(0xFFE6C575).withValues(alpha: 0.7),
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ],
                       const Spacer(),
 
                       // Time
@@ -508,10 +467,8 @@ class DashboardTab extends ConsumerWidget {
                           Text(
                             timeFormatter.format(prayerTime),
                             style: GoogleFonts.outfit(
-                              color: isImsak
-                                  ? const Color(0xFFE6C575)
-                                  : isCurrent ? const Color(0xFFD4AF37) : Colors.white,
-                              fontSize: isImsak ? 16 : 18,
+                              color: isCurrent ? const Color(0xFFD4AF37) : Colors.white,
+                              fontSize: 18,
                               fontWeight: isCurrent ? FontWeight.bold : FontWeight.w600,
                             ),
                           ),

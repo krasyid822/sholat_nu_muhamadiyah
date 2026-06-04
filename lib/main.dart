@@ -14,6 +14,7 @@ import 'widgets/calendar_tab.dart';
 import 'widgets/hilal_tab.dart';
 import 'widgets/settings_tab.dart';
 import 'widgets/qibla_tab.dart';
+import 'widgets/adsense_tab.dart';
 
 void main() async {
   // Ensure Flutter engine and localizations are initialized
@@ -137,6 +138,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       CalendarTab(),
       HilalTab(),
       QiblaTab(),
+      AdsenseTab(),
       SettingsTab(),
     ];
   }
@@ -214,6 +216,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: 'Calendar'),
       BottomNavigationBarItem(icon: Icon(Icons.nightlight_round), label: 'Hilal'),
       BottomNavigationBarItem(icon: Icon(Icons.explore), label: 'Kiblat'),
+      BottomNavigationBarItem(icon: Icon(Icons.monetization_on), label: 'AdSense'),
       BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
     ];
   }

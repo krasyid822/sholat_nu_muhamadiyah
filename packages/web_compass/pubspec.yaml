@@ -1,0 +1,13 @@
+name: web_compass
+description: A clean Flutter Web package to read absolute and relative device orientation (compass) sensors.
+version: 1.0.0
+# publish_to: 'none' # Or remove when ready to publish to pub.dev
+
+environment:
+  sdk: ^3.12.0
+  flutter: ">=3.16.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  web: ^1.1.1

@@ -16,6 +16,9 @@
   -->
   <base href="$FLUTTER_BASE_HREF">
 
+  <!-- Google AdSense Verification Code -->
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1868503720894962" crossorigin="anonymous"></script>
+
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="Jadwal sholat presisi tinggi Kemenag (NU) & Muhammadiyah serta simulator visibilitas hilal interaktif.">
@@ -275,7 +278,7 @@
         // 2. Fetch critical entry point files with 'cache: reload' + nocache query to force-evict HTTP cache
         const criticalUrls = [
           window.location.pathname,
-          'flutter_bootstrap.js?v=1780060399344',
+          'flutter_bootstrap.js?v=1780540253054',
           'flutter_service_worker.js',
           'manifest.json',
           'version.json'
@@ -513,242 +516,6 @@
       return true;
     };
 
-    // Qibla Compass Web API Integration
-    window.hasAbsoluteEvent = false;
-    window.qiblaHeading = null;
-    window.qiblaPitch = 0;
-    window.qiblaRoll = 0;
-    window.orientationPermissionGranted = false;
-
-    function handleOrientationAbsolute(event) {
-      window.hasAbsoluteEvent = true;
-      let heading = null;
-      // We do NOT strictly check event.absolute here because some modern browsers/devices
-      // omit it or report it as false even when firing the absolute event, but alpha is still absolute.
-      if (event.alpha !== null) {
-        // alpha increases counter-clockwise, compass heading increases clockwise.
-        heading = (360 - event.alpha) % 360;
-      } else if (event.webkitCompassHeading !== undefined && event.webkitCompassHeading !== null) {
-        heading = event.webkitCompassHeading;
-      }
-      if (heading !== null) {
-        window.qiblaHeading = heading;
-      }
-      if (event.beta !== null) {
-        window.qiblaPitch = event.beta;
-      }
-      if (event.gamma !== null) {
-        window.qiblaRoll = event.gamma;
-      }
-    }
-
-    function handleOrientation(event) {
-      let heading = null;
-      if (event.webkitCompassHeading !== undefined && event.webkitCompassHeading !== null) {
-        // iOS Safari uses webkitCompassHeading which is highly accurate and absolute
-        heading = event.webkitCompassHeading;
-      } else if (!window.hasAbsoluteEvent && event.alpha !== null) {
-        // Fallback standard alpha: if deviceorientationabsolute doesn't fire,
-        // we use deviceorientation alpha so the compass still moves dynamically.
-        heading = (360 - event.alpha) % 360;
-      }
-      if (heading !== null) {
-        window.qiblaHeading = heading;
-      }
-      if (event.beta !== null) {
-        window.qiblaPitch = event.beta;
-      }
-      if (event.gamma !== null) {
-        window.qiblaRoll = event.gamma;
-      }
-    }
-
-    // Native compass-only sensor bootstrap (without camera dependency)
-    // Native compass-only sensor bootstrap (without camera dependency)
-    window.startCompassSensors = async function() {
-      let permissionState = 'granted';
-      window.hasAbsoluteEvent = false;
-
-      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-        try {
-          permissionState = await DeviceOrientationEvent.requestPermission();
-        } catch (err) {
-          console.error('Compass permission request failed (falling back to granted):', err);
-          // Graceful fallback for PWA standalone permission failures
-          permissionState = 'granted';
-        }
-      }
-
-      window.orientationPermissionGranted = true;
-      window.removeEventListener('deviceorientationabsolute', handleOrientationAbsolute, true);
-      window.removeEventListener('deviceorientation', handleOrientation, true);
-      window.addEventListener('deviceorientationabsolute', handleOrientationAbsolute, true);
-      window.addEventListener('deviceorientation', handleOrientation, true);
-      console.log('Compass sensors started (native HTML5)');
-      return 'granted';
-    };
-
-    window.stopCompassSensors = function() {
-      window.removeEventListener('deviceorientationabsolute', handleOrientationAbsolute, true);
-      window.removeEventListener('deviceorientation', handleOrientation, true);
-      console.log('Compass sensors stopped (native HTML5)');
-      return true;
-    };
-
-    window.startOrientationUpdates = async function() {
-      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-        // iOS 13+ requires explicit user gesture permission
-        try {
-          const permissionState = await DeviceOrientationEvent.requestPermission();
-          if (permissionState === 'granted') {
-            window.orientationPermissionGranted = true;
-            window.addEventListener('deviceorientation', handleOrientation, true);
-            console.log('Compass updates started (iOS)');
-            return 'granted';
-          }
-          // Standalone PWA iOS fallback
-          window.orientationPermissionGranted = true;
-          window.addEventListener('deviceorientation', handleOrientation, true);
-          return 'granted';
-        } catch (err) {
-          console.error('Orientation permission error (falling back to granted):', err);
-          window.orientationPermissionGranted = true;
-          window.addEventListener('deviceorientation', handleOrientation, true);
-          return 'granted';
-        }
-      } else {
-        // Android / Desktop do not require explicit permissions
-        window.orientationPermissionGranted = true;
-        window.hasAbsoluteEvent = false;
-        
-        // Register BOTH listeners. If deviceorientationabsolute works, handleOrientation
-        // will ignore its relative updates. If absolute is missing/buggy, relative fallback
-        // keeps the compass rotating rather than being completely frozen.
-        window.addEventListener('deviceorientationabsolute', handleOrientationAbsolute, true);
-        window.addEventListener('deviceorientation', handleOrientation, true);
-        
-        console.log('Compass updates started (Android/Desktop Dual-Listener)');
-        return 'granted';
-      }
-    };
-
-    window.stopOrientationUpdates = function() {
-      window.removeEventListener('deviceorientationabsolute', handleOrientationAbsolute, true);
-      window.removeEventListener('deviceorientation', handleOrientation, true);
-      console.log('Compass updates stopped');
-      return true;
-    };
-
-    // AR Camera + Compass container state
-    let arCameraStream = null;
-    let arOrientationHandler = null;
-    let arNeedleInterval = null;
-    window.arHardwareStarted = false;
-    window.arNativeActivationState = 'idle';
-
-    window.showArActivationOverlay = function() {
-      const container = document.getElementById('ar-compass-container');
-      const activateBtn = document.getElementById('ar-native-activate-btn');
-      if (container) {
-        container.style.display = 'block';
-      }
-      if (activateBtn) {
-        activateBtn.style.display = 'inline-flex';
-      }
-      return true;
-    };
-
-    window.startHardware = async function() {
-      const container = document.getElementById('ar-compass-container');
-      const video = document.getElementById('camera-feed');
-      const needle = document.getElementById('needle');
-      if (!container || !video || !needle) {
-        return 'error';
-      }
-
-      container.style.display = 'block';
-
-      let permissionState = 'granted';
-      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-        try {
-          permissionState = await DeviceOrientationEvent.requestPermission();
-        } catch (err) {
-          console.error('Orientation permission request failed (falling back to granted):', err);
-          // Graceful fallback for PWA standalone permission failures
-          permissionState = 'granted';
-        }
-      }
-
-      try {
-        if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function') {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: 'environment' } },
-            audio: false
-          });
-          arCameraStream = stream;
-          video.srcObject = stream;
-        } else {
-          console.warn('Camera mediaDevices/getUserMedia is unavailable in this environment.');
-        }
-      } catch (err) {
-        console.warn('Camera access denied/unavailable (falling back to compass-only mode):', err);
-      }
-      
-      // Always mark as started so compass functionality is not blocked by camera access failure
-      window.arHardwareStarted = true;
-
-      if (arOrientationHandler) {
-        window.removeEventListener('deviceorientation', arOrientationHandler, true);
-      }
-
-      arOrientationHandler = function() {
-        if (window.qiblaHeading !== null) {
-          needle.style.transform = 'translate(-50%, -50%) rotate(' + window.qiblaHeading + 'deg)';
-        }
-      };
-      if (arNeedleInterval) {
-        window.clearInterval(arNeedleInterval);
-      }
-      arNeedleInterval = window.setInterval(arOrientationHandler, 30);
-      const status = await window.startCompassSensors();
-      window.arNativeActivationState = status;
-      if (status === 'granted') {
-        const activateBtn = document.getElementById('ar-native-activate-btn');
-        if (activateBtn) {
-          activateBtn.style.display = 'none';
-        }
-      }
-      return status;
-    };
-
-    window.stopHardware = function() {
-      if (arOrientationHandler) {
-        arOrientationHandler = null;
-      }
-      if (arNeedleInterval) {
-        window.clearInterval(arNeedleInterval);
-        arNeedleInterval = null;
-      }
-      window.stopCompassSensors();
-
-      if (arCameraStream) {
-        arCameraStream.getTracks().forEach((track) => track.stop());
-        arCameraStream = null;
-      }
-
-      const container = document.getElementById('ar-compass-container');
-      const video = document.getElementById('camera-feed');
-      if (video) {
-        video.srcObject = null;
-      }
-      if (container) {
-        container.style.display = 'none';
-      }
-      window.arHardwareStarted = false;
-      window.arNativeActivationState = 'idle';
-      return true;
-    };
-
     // Register the Firebase messaging service worker on a separate scope on load to ensure robust local debug notifications.
     window.registerFirebaseMessagingSW();
   </script>
@@ -761,56 +528,7 @@
     <div class="loading-subtitle">Sholat & Hilal Sighting</div>
   </div>
 
-  <div
-    id="ar-compass-container"
-    style="display:none; position:relative; width:100%; height:100%; overflow:hidden; background:#000;"
-  >
-    <video
-      id="camera-feed"
-      autoplay
-      muted
-      playsinline
-      style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;"
-    ></video>
 
-    <div
-      id="compass-ui"
-      style="display:none !important; position:absolute; top:50%; left:50%; width:160px; height:160px; transform:translate(-50%, -50%); pointer-events:none;"
-    >
-      <div
-        style="position:absolute; inset:0; border-radius:50%; border:2px solid rgba(255,255,255,0.35); box-shadow:0 0 20px rgba(0,0,0,0.45);"
-      ></div>
-      <div
-        id="needle"
-        style="position:absolute; top:50%; left:50%; width:6px; height:68px; background:linear-gradient(to top, #2ecc71 0%, #d4af37 100%); transform-origin:50% 85%; transform:translate(-50%, -50%) rotate(0deg); border-radius:3px;"
-      ></div>
-      <div
-        style="position:absolute; top:50%; left:50%; width:14px; height:14px; transform:translate(-50%, -50%); border-radius:50%; background:#d4af37;"
-      ></div>
-    </div>
-
-    <button
-      id="ar-native-activate-btn"
-      style="position:absolute; left:50%; bottom:36px; transform:translateX(-50%); z-index:20; display:inline-flex; align-items:center; justify-content:center; border:none; border-radius:14px; padding:12px 18px; background:#d4af37; color:#05120C; font-weight:700; font-size:14px; box-shadow:0 4px 14px rgba(0,0,0,0.4);"
-    >
-      Aktifkan Sensor Kompas
-    </button>
-  </div>
-
-  <script>
-    (function bindNativeActivationButton() {
-      const btn = document.getElementById('ar-native-activate-btn');
-      if (!btn) return;
-      btn.addEventListener('click', async function() {
-        btn.textContent = 'Meminta Izin...';
-        const status = await window.startHardware();
-        if (status !== 'granted') {
-          btn.textContent = 'Ulangi Aktivasi Sensor';
-        }
-      }, { passive: true });
-    })();
-  </script>
-
-  <script src="flutter_bootstrap.js?v=1780060399344" async></script>
+  <script src="flutter_bootstrap.js?v=1780540253054" async></script>
 </body>
 </html>

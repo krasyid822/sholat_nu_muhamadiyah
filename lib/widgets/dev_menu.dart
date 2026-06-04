@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'dart:js' as js;
+import 'dart:async';
+import 'package:intl/intl.dart';
 
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -23,6 +25,9 @@ class _DevMenuState extends State<DevMenu> {
   String _lastMessage = '';
   bool _isLoading = false;
   String _selectedSimulatedPrayer = 'Subuh';
+  String _serverTime = 'Belum dimuat...';
+  Timer? _serverTimeTimer;
+  int? _serverTimeOffsetMs;
 
   @override
   void initState() {
@@ -30,6 +35,13 @@ class _DevMenuState extends State<DevMenu> {
     _loadToken();
     _checkPermission();
     _listenForMessages();
+    _fetchServerTime();
+  }
+
+  @override
+  void dispose() {
+    _serverTimeTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadToken() async {
@@ -117,6 +129,66 @@ class _DevMenuState extends State<DevMenu> {
         });
       }
     });
+  }
+
+  Future<void> _fetchServerTime() async {
+    if (mounted) setState(() => _isLoading = true);
+    try {
+      final clientEpochBefore = DateTime.now().millisecondsSinceEpoch;
+      final url = Uri.parse('https://us-central1-al-waqt-9cdb7.cloudfunctions.net/getServerTime');
+      final response = await http.get(url).timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final serverEpoch = data['epoch'] as int;
+
+        final clientEpochAfter = DateTime.now().millisecondsSinceEpoch;
+        final clientEpochMidpoint = (clientEpochBefore + clientEpochAfter) ~/ 2;
+
+        _serverTimeOffsetMs = serverEpoch - clientEpochMidpoint;
+        _updateTickingServerTime();
+        _startServerTimeTimer();
+      } else {
+        if (mounted) {
+          setState(() {
+            _serverTime = 'Gagal memuat: Kode ${response.statusCode}';
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _serverTime = 'Error: $e';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  void _startServerTimeTimer() {
+    _serverTimeTimer?.cancel();
+    _serverTimeTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      _updateTickingServerTime();
+    });
+  }
+
+  void _updateTickingServerTime() {
+    if (_serverTimeOffsetMs == null) return;
+    final nowClient = DateTime.now().millisecondsSinceEpoch;
+    final nowServerEpoch = nowClient + _serverTimeOffsetMs!;
+    final nowServerDateTime = DateTime.fromMillisecondsSinceEpoch(nowServerEpoch);
+
+    final formatter = DateFormat('yyyy-MM-dd HH:mm:ss');
+    final formattedLocal = formatter.format(nowServerDateTime.toLocal());
+    final formattedUtc = formatter.format(nowServerDateTime.toUtc());
+
+    if (mounted) {
+      setState(() {
+        _serverTime = '$formattedLocal WIB/Lokal\n$formattedUtc UTC';
+      });
+    }
   }
 
   Future<void> _sendLocalTestNotification() async {
@@ -482,6 +554,20 @@ class _DevMenuState extends State<DevMenu> {
                     onPressed: _requestPermission,
                   ),
                 ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: _actionButton(
+                    icon: Icons.cleaning_services_rounded,
+                    label: 'Force Clear Cache & Update SW',
+                    onPressed: () {
+                      if (kIsWeb) {
+                        js.context.callMethod('forceRefreshAppCache');
+                      }
+                    },
+                    color: Colors.redAccent.shade700,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -651,6 +737,42 @@ class _DevMenuState extends State<DevMenu> {
                       ),
                     ),
                   ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // === Server Time Card ===
+            _buildCard(
+              title: '⏰ Jam Server Firebase (WIB)',
+              cardColor: cardColor,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: surfaceColor,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: SelectableText(
+                    _serverTime,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white70,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: _actionButton(
+                    icon: Icons.access_time_rounded,
+                    label: 'Perbarui Jam Server',
+                    onPressed: _fetchServerTime,
+                    color: Colors.blueGrey.shade800,
+                  ),
                 ),
               ],
             ),

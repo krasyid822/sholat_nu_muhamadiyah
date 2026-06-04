@@ -8,6 +8,7 @@ import '../models/app_settings.dart';
 import '../data/cities.dart';
 import '../utils/hijri_converter.dart';
 import '../config/app_version.dart';
+import 'dev_menu.dart';
 
 class SettingsTab extends ConsumerStatefulWidget {
   const SettingsTab({super.key});
@@ -25,6 +26,7 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
   List<Map<String, dynamic>> _osmSearchResults = [];
   bool _isSearchingOsm = false;
   String? _osmSearchError;
+  int _devTaps = 0;
 
   @override
   void initState() {
@@ -1096,13 +1098,78 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
                 child: Center(
-                  child: Text(
-                    'Al-Waqt v$kAppVersion',
-                    style: GoogleFonts.plusJakartaSans(
-                      color: Colors.white24,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.5,
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _devTaps++;
+                      });
+                      if (_devTaps >= 7) {
+                        setState(() {
+                          _devTaps = 0;
+                        });
+                        ScaffoldMessenger.of(context).clearSnackBars();
+                        final screenHeight = MediaQuery.of(context).size.height;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            behavior: SnackBarBehavior.floating,
+                            margin: EdgeInsets.only(
+                              bottom: screenHeight - 120,
+                              left: 16,
+                              right: 16,
+                            ),
+                            content: Text(
+                              'Membuka DevMenu dalam 2 detik...',
+                              style: GoogleFonts.plusJakartaSans(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            duration: const Duration(seconds: 2),
+                            backgroundColor: const Color(0xFFD4AF37),
+                          ),
+                        );
+                        Future.delayed(const Duration(seconds: 2), () {
+                          if (mounted && context.mounted) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const DevMenu(),
+                              ),
+                            );
+                          }
+                        });
+                      } else if (_devTaps >= 3) {
+                        ScaffoldMessenger.of(context).clearSnackBars();
+                        final screenHeight = MediaQuery.of(context).size.height;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            behavior: SnackBarBehavior.floating,
+                            margin: EdgeInsets.only(
+                              bottom: screenHeight - 120,
+                              left: 16,
+                              right: 16,
+                            ),
+                            content: Text(
+                              'Anda tinggal ${7 - _devTaps} langkah lagi untuk membuka DevMenu!',
+                              style: GoogleFonts.plusJakartaSans(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            duration: const Duration(seconds: 1),
+                            backgroundColor: const Color(0xFF0F5A3E),
+                          ),
+                        );
+                      }
+                    },
+                    child: Text(
+                      'Al-Waqt v$kAppVersion',
+                      style: GoogleFonts.plusJakartaSans(
+                        color: Colors.white24,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.5,
+                      ),
                     ),
                   ),
                 ),
