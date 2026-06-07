@@ -1,4 +1,5 @@
 // ignore_for_file: avoid_web_libraries_in_flutter, deprecated_member_use
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -22,15 +23,9 @@ void main() async {
   await initializeDateFormatting('id_ID', null);
 
   // Initialize Firebase — required for FCM and all Firebase services
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  runApp(
-    const ProviderScope(
-      child: MyApp(),
-    ),
-  );
+  runApp(const ProviderScope(child: MyApp()));
 
   // Configure Web Push Messaging in the background without blocking the loading screen
   _configureWebPushMessaging();
@@ -43,7 +38,9 @@ Future<void> _configureWebPushMessaging() async {
     // Check if browser notification permission is blocked
     final htmlPermission = js.context['Notification']?['permission'];
     if (htmlPermission == 'denied') {
-      debugPrint('Web push setup skipped: Notification permission blocked by browser.');
+      debugPrint(
+        'Web push setup skipped: Notification permission blocked by browser.',
+      );
       return;
     }
 
@@ -57,41 +54,84 @@ Future<void> _configureWebPushMessaging() async {
       return;
     }
 
-    await FirebaseMessaging.instance.getToken(
-      vapidKey: AppEnv.firebaseWebVapidKey,
-    );
+    try {
+      js.context.callMethod('getFcmTokenWithMainSW', [
+        AppEnv.firebaseWebVapidKey,
+      ]);
+
+      // On Android Chrome PWA, service worker registration and FCM token
+      // retrieval can take significantly longer (up to 30s) due to:
+      // - First-time PWA install registering the Firebase SW
+      // - IndexedDB initialization for token storage
+      // - Network latency on mobile connections
+      int elapsedMs = 0;
+      const int maxWaitMs = 30000;
+      while (js.context['fcmTokenReady'] != true && elapsedMs < maxWaitMs) {
+        await Future.delayed(const Duration(milliseconds: 200));
+        elapsedMs += 200;
+      }
+
+      if (js.context['fcmTokenReady'] == true) {
+        final error = js.context['fcmTokenError'];
+        if (error != null) {
+          debugPrint('Error getting token via JS helper: $error');
+          await FirebaseMessaging.instance.getToken(
+            vapidKey: AppEnv.firebaseWebVapidKey,
+          );
+        }
+      } else {
+        debugPrint('Timeout getting token via JS helper after ${maxWaitMs}ms');
+        await FirebaseMessaging.instance.getToken(
+          vapidKey: AppEnv.firebaseWebVapidKey,
+        );
+      }
+    } catch (e) {
+      debugPrint('Error calling JS helper: $e');
+      await FirebaseMessaging.instance.getToken(
+        vapidKey: AppEnv.firebaseWebVapidKey,
+      );
+    }
 
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       // Keep a foreground listener alive so web PWA receives data while open.
       final notification = message.notification;
       final title = notification?.title ?? message.data['title'] ?? 'Al-Waqt';
-      final body = notification?.body ?? message.data['body'] ?? 'Ada notifikasi baru.';
+      final body =
+          notification?.body ?? message.data['body'] ?? 'Ada notifikasi baru.';
       debugPrint('[FCM Foreground] $title - $body');
+
+      // NOTE: The actual system notification for foreground messages is now
+      // handled directly in JavaScript via messaging.onMessage() in index.html.
+      // This is more reliable on Android Chrome PWA because it uses the
+      // service worker registration directly without going through Dart-JS interop.
+      //
+      // We still play the notification sound from Dart since the JavaScript
+      // onMessage handler only shows the visual notification.
 
       // Determine sound type (Adzan for simulated/real prayer time notifications, Beep for others)
       String soundType = 'beep';
       final lowercaseTitle = title.toLowerCase();
       final lowercaseBody = body.toLowerCase();
-      
-      final isPrayerTime = lowercaseTitle.contains('waktu') && 
-          (lowercaseTitle.contains('subuh') || 
-           lowercaseTitle.contains('dzuhur') || 
-           lowercaseTitle.contains('ashar') || 
-           lowercaseTitle.contains('maghrib') || 
-           lowercaseTitle.contains('isya') ||
-           lowercaseBody.contains('shalat') ||
-           lowercaseBody.contains('sholat'));
-           
+
+      final isPrayerTime =
+          lowercaseTitle.contains('waktu') &&
+          (lowercaseTitle.contains('subuh') ||
+              lowercaseTitle.contains('dzuhur') ||
+              lowercaseTitle.contains('ashar') ||
+              lowercaseTitle.contains('maghrib') ||
+              lowercaseTitle.contains('isya') ||
+              lowercaseBody.contains('shalat') ||
+              lowercaseBody.contains('sholat'));
+
       if (isPrayerTime) {
         soundType = 'adzan';
       }
 
-      // Trigger native browser system notification for foreground messages
+      // Play notification sound (handled from Dart since audio context needs user gesture)
       try {
-        js.context.callMethod('showLocalNotification', [title, body]);
         js.context.callMethod('playNotificationSound', [soundType]);
       } catch (e) {
-        debugPrint('Failed to show native browser notification: $e');
+        debugPrint('Failed to play notification sound: $e');
       }
     });
   } catch (e) {
@@ -109,7 +149,9 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF05120C), // Deep black-emerald canvas
+        scaffoldBackgroundColor: const Color(
+          0xFF05120C,
+        ), // Deep black-emerald canvas
         colorScheme: const ColorScheme.dark(
           primary: Color(0xFFD4AF37), // Islamic Gold
           secondary: Color(0xFF0F5A3E), // Deep Emerald
@@ -161,7 +203,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               Shadow(
                 color: const Color(0xFFD4AF37).withValues(alpha: 0.3),
                 blurRadius: 10,
-              )
+              ),
             ],
           ),
         ),
@@ -210,13 +252,23 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       ),
     );
   }
+
   List<BottomNavigationBarItem> _buildNavItems() {
     return const <BottomNavigationBarItem>[
       BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Dashboard'),
-      BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: 'Calendar'),
-      BottomNavigationBarItem(icon: Icon(Icons.nightlight_round), label: 'Hilal'),
+      BottomNavigationBarItem(
+        icon: Icon(Icons.calendar_today),
+        label: 'Calendar',
+      ),
+      BottomNavigationBarItem(
+        icon: Icon(Icons.nightlight_round),
+        label: 'Hilal',
+      ),
       BottomNavigationBarItem(icon: Icon(Icons.explore), label: 'Kiblat'),
-      BottomNavigationBarItem(icon: Icon(Icons.monetization_on), label: 'AdSense'),
+      BottomNavigationBarItem(
+        icon: Icon(Icons.monetization_on),
+        label: 'AdSense',
+      ),
       BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
     ];
   }

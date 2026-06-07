@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <!--
     If you are serving your web app in a path other than the root, change the
@@ -17,11 +18,13 @@
   <base href="$FLUTTER_BASE_HREF">
 
   <!-- Google AdSense Verification Code -->
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1868503720894962" crossorigin="anonymous"></script>
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1868503720894962"
+    crossorigin="anonymous"></script>
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="Jadwal sholat presisi tinggi Kemenag (NU) & Muhammadiyah serta simulator visibilitas hilal interaktif.">
+  <meta name="description"
+    content="Jadwal sholat presisi tinggi Kemenag (NU) & Muhammadiyah serta simulator visibilitas hilal interaktif.">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
@@ -30,10 +33,14 @@
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
+  <link rel="icon" type="image/png" href="favicon.png" />
 
   <title>Al-Waqt: Jadwal Sholat & Hilal (NU / Muhammadiyah)</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- Firebase SDK scripts for FCM PWA fix -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
 
   <!-- Custom Premium Loading Splash Screen Styling -->
   <style>
@@ -48,12 +55,14 @@
       overflow: hidden;
       font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
     }
+
     .loading-container {
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
     }
+
     .moon-spinner {
       position: relative;
       width: 70px;
@@ -63,6 +72,7 @@
       box-shadow: 0 0 20px rgba(212, 175, 55, 0.4);
       animation: pulse 2s infinite ease-in-out;
     }
+
     .moon-spinner::after {
       content: '';
       position: absolute;
@@ -74,6 +84,7 @@
       background-color: #05120C;
       transition: 0.5s;
     }
+
     .loading-title {
       color: #D4AF37;
       margin-top: 30px;
@@ -83,6 +94,7 @@
       text-shadow: 0 0 10px rgba(212, 175, 55, 0.3);
       animation: text-pulse 2s infinite ease-in-out;
     }
+
     .loading-subtitle {
       color: #81C784;
       margin-top: 10px;
@@ -91,24 +103,36 @@
       letter-spacing: 2px;
       opacity: 0.8;
     }
+
     @keyframes pulse {
-      0%, 100% {
+
+      0%,
+      100% {
         transform: scale(0.92);
         box-shadow: 0 0 15px rgba(212, 175, 55, 0.3);
       }
+
       50% {
         transform: scale(1.05);
         box-shadow: 0 0 30px rgba(212, 175, 55, 0.7);
       }
     }
+
     @keyframes text-pulse {
-      0%, 100% { opacity: 0.6; }
-      50% { opacity: 1.0; }
+
+      0%,
+      100% {
+        opacity: 0.6;
+      }
+
+      50% {
+        opacity: 1.0;
+      }
     }
   </style>
   <script>
     // JS helpers for PWA offline notifications and wake lock
-    window.requestNotificationPermission = async function() {
+    window.requestNotificationPermission = async function () {
       if (!('Notification' in window)) {
         console.log('Notification API not supported');
         return 'unsupported';
@@ -116,46 +140,72 @@
       return await Notification.requestPermission();
     };
 
-    window.showLocalNotification = function(title, body) {
-      if (!('Notification' in window) || Notification.permission !== 'granted') return;
-      
+    window.showLocalNotification = function (title, body) {
+      if (!('Notification' in window) || Notification.permission !== 'granted') {
+        console.warn('[Notification] Cannot show: permission is', Notification.permission);
+        return;
+      }
+
       const options = {
         body: body,
         icon: 'icons/Icon-192.png',
         badge: 'icons/Icon-192.png',
-        vibrate: [200, 100, 200]
+        vibrate: [200, 100, 200],
+        tag: 'alwaqt-' + Date.now(), // unique tag to avoid duplicate suppression
+        requireInteraction: true,
       };
 
-      // 1. Try to find any active Service Worker registration (extremely robust on all devices)
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then((registrations) => {
-          const activeReg = registrations.find(reg => reg.active);
-          if (activeReg) {
-            activeReg.showNotification(title, options);
-            console.log('[Notification] Triggered via active Service Worker:', activeReg.scope);
-          } else {
-            // No active registration found, try legacy fallback
-            triggerLegacyNotification(title, options);
+      console.log('[Notification] Attempting to show:', title);
+
+      // Strategy 1: Try to get the active SW registration and show via SW
+      // This is the most reliable method on Android Chrome PWA (standalone mode)
+      // because new Notification() is blocked (Illegal constructor).
+      async function showViaServiceWorker() {
+        if (!('serviceWorker' in navigator)) return false;
+        try {
+          // First try getRegistration() for the current scope, which is more specific
+          let reg = await navigator.serviceWorker.getRegistration();
+          if (reg && reg.active) {
+            await reg.showNotification(title, options);
+            console.log('[Notification] Shown via getRegistration()');
+            return true;
           }
-        }).catch((err) => {
-          console.warn('[Notification] SW getRegistrations failed, trying legacy:', err);
-          triggerLegacyNotification(title, options);
-        });
-      } else {
-        triggerLegacyNotification(title, options);
+          // Fall back to ready (waits for activation)
+          reg = await navigator.serviceWorker.ready;
+          if (reg && reg.active) {
+            await reg.showNotification(title, options);
+            console.log('[Notification] Shown via serviceWorker.ready');
+            return true;
+          }
+        } catch (err) {
+          console.warn('[Notification] SW method failed:', err);
+        }
+        return false;
       }
 
-      function triggerLegacyNotification(title, options) {
+      // Strategy 2: Legacy Notification constructor (blocked on Android Chrome PWA)
+      function showViaLegacy() {
         try {
           new Notification(title, options);
-          console.log('[Notification] Triggered via legacy constructor');
+          console.log('[Notification] Shown via legacy constructor');
+          return true;
         } catch (e) {
-          console.warn('[Notification] Legacy constructor blocked (Illegal constructor on Android):', e);
+          console.warn('[Notification] Legacy constructor blocked:', e);
+          return false;
         }
       }
+
+      // Try SW first, then legacy
+      showViaServiceWorker().then((swShown) => {
+        if (!swShown) {
+          showViaLegacy();
+        }
+      }).catch(() => {
+        showViaLegacy();
+      });
     };
 
-    window.playNotificationSound = function(soundType) {
+    window.playNotificationSound = function (soundType) {
       try {
         if (soundType === 'adzan') {
           const soundUrl = 'azan.mp3';
@@ -169,7 +219,7 @@
           const AudioContext = window.AudioContext || window.webkitAudioContext;
           if (AudioContext) {
             const audioCtx = new AudioContext();
-            
+
             // First chime tone (high and sweet)
             const osc1 = audioCtx.createOscillator();
             const gain1 = audioCtx.createGain();
@@ -177,12 +227,12 @@
             osc1.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
             gain1.gain.setValueAtTime(0.2, audioCtx.currentTime);
             gain1.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.2);
-            
+
             osc1.connect(gain1);
             gain1.connect(audioCtx.destination);
             osc1.start();
             osc1.stop(audioCtx.currentTime + 0.2);
-            
+
             // Second chime tone (warm and resonant, slightly delayed)
             setTimeout(() => {
               const osc2 = audioCtx.createOscillator();
@@ -191,13 +241,13 @@
               osc2.frequency.setValueAtTime(659.25, audioCtx.currentTime); // E5 note
               gain2.gain.setValueAtTime(0.2, audioCtx.currentTime);
               gain2.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
-              
+
               osc2.connect(gain2);
               gain2.connect(audioCtx.destination);
               osc2.start();
               osc2.stop(audioCtx.currentTime + 0.3);
             }, 100);
-            
+
             console.log('[Audio] Played synthetic notification chime');
           } else {
             console.warn('[Audio] Web Audio API not supported');
@@ -208,25 +258,242 @@
       }
     };
 
-    // Register on a separate scope to prevent conflicts with Flutter PWA service worker while ensuring an active registration exists.
-    window.registerFirebaseMessagingSW = async function() {
-      if (!('serviceWorker' in navigator)) return false;
+    // Initialize Firebase in the main thread (compat SDK)
+    const firebaseConfig = {
+      apiKey: "AIzaSyCTcIqYgCdyc9pp-1V6TOnX8O1XNvK37cc",
+      authDomain: "al-waqt-9cdb7.firebaseapp.com",
+      projectId: "al-waqt-9cdb7",
+      storageBucket: "al-waqt-9cdb7.firebasestorage.app",
+      messagingSenderId: "756381611248",
+      appId: "1:756381611248:web:0cabf7509812600cd13e35",
+      measurementId: "G-NGP57MYQH5"
+    };
+
+    let messaging = null;
+    try {
+      if (typeof firebase !== 'undefined') {
+        if (!firebase.apps.length) {
+          firebase.initializeApp(firebaseConfig);
+        }
+        messaging = firebase.messaging();
+
+        // Handle foreground messages directly in JavaScript.
+        // When the PWA is in foreground, Firebase delivers messages to this
+        // onMessage handler. We show the notification via the service worker
+        // registration, which is more reliable on Android Chrome PWA than
+        // going through Dart's js.context.callMethod -> showLocalNotification.
+        if (messaging) {
+          messaging.onMessage((message) => {
+            console.log('[FCM onMessage] Foreground message received:', message);
+            const title = message.notification?.title || message.data?.title || 'Al-Waqt';
+            const body = message.notification?.body || message.data?.body || '';
+            if (title && Notification.permission === 'granted') {
+              // Use the service worker to show notification (more reliable on PWA)
+              navigator.serviceWorker.ready.then((reg) => {
+                if (reg && reg.active) {
+                  reg.showNotification(title, {
+                    body: body,
+                    icon: 'icons/Icon-192.png',
+                    badge: 'icons/Icon-192.png',
+                    vibrate: [200, 100, 200],
+                    tag: 'fcm-foreground-' + Date.now(),
+                    requireInteraction: true,
+                    data: message.data || {},
+                  }).then(() => {
+                    console.log('[FCM onMessage] Notification shown via SW');
+                  }).catch((err) => {
+                    console.warn('[FCM onMessage] SW showNotification failed:', err);
+                  });
+                }
+              }).catch((err) => {
+                console.warn('[FCM onMessage] SW ready failed:', err);
+              });
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Firebase initialization in main page failed:', e);
+    }
+
+    window.fcmTokenReady = false;
+    window.lastFcmToken = null;
+    window.fcmTokenError = null;
+
+    // Retrieve FCM token using the Firebase compat SDK.
+    //
+    // IMPORTANT: The post_build.dart tool replaces Flutter's generated
+    // flutter_service_worker.js with a proxy that imports firebase-messaging-sw.js
+    // via importScripts(). This means the service worker at scope '/' ALREADY
+    // includes Firebase messaging's push event handler.
+    //
+    // Therefore, we do NOT need to register firebase-messaging-sw.js separately.
+    // Doing so would replace the proxy SW and break the PWA cache logic.
+    //
+    // Strategy:
+    // 1. Call messaging.getToken({ vapidKey }) WITHOUT serviceWorkerRegistration.
+    //    The Firebase compat SDK will use navigator.serviceWorker.ready, which
+    //    returns Flutter's proxy SW (flutter_service_worker.js that imports
+    //    firebase-messaging-sw.js). This SW already handles push events.
+    // 2. If the compat SDK fails, fall back to the Flutter firebase_messaging
+    //    plugin's getToken() which uses the same approach.
+    window.getFcmTokenWithMainSW = function (vapidKey) {
+      window.fcmTokenReady = false;
+      window.lastFcmToken = null;
+      window.fcmTokenError = null;
+
+      (async () => {
+        try {
+          if (!messaging) {
+            throw new Error('Firebase Messaging is not initialized on the main page.');
+          }
+
+          // Ensure the service worker registration is fetched before requesting token.
+          console.log('[FCM] Fetching service worker registration...');
+          let reg = null;
+          try {
+            reg = await navigator.serviceWorker.getRegistration();
+            console.log('[FCM] Service worker registration:', reg ? 'found' : 'not found');
+          } catch (swError) {
+            console.warn('[FCM] navigator.serviceWorker.getRegistration failed:', swError);
+          }
+
+          console.log('[FCM] Requesting token via compat SDK...');
+          let token;
+          try {
+            token = await messaging.getToken({ 
+              vapidKey: vapidKey,
+              serviceWorkerRegistration: reg
+            });
+          } catch (tokenError) {
+            const errStr = tokenError.toString();
+            if (errStr.includes('VersionError') || tokenError.name === 'VersionError') {
+              console.warn('[FCM] IndexedDB VersionError detected. Cleaning databases and retrying...');
+              
+              const dbsToDelete = ['firebase-messaging-database', 'fcm_token_details_db', 'firebase-installations-database'];
+              for (const dbName of dbsToDelete) {
+                try {
+                  await new Promise((resolve) => {
+                    const req = indexedDB.deleteDatabase(dbName);
+                    req.onsuccess = () => { console.log('[FCM] Deleted DB:', dbName); resolve(); };
+                    req.onerror = () => { console.warn('[FCM] Failed to delete DB:', dbName); resolve(); };
+                    req.onblocked = () => { console.warn('[FCM] DB delete blocked:', dbName); resolve(); };
+                  });
+                } catch (dbErr) {
+                  console.warn('[FCM] Error deleting DB:', dbName, dbErr);
+                }
+              }
+              
+              token = await messaging.getToken({ 
+                vapidKey: vapidKey,
+                serviceWorkerRegistration: reg
+              });
+            } else {
+              throw tokenError;
+            }
+          }
+
+          window.lastFcmToken = token;
+          window.fcmTokenReady = true;
+          console.log('[FCM] Token obtained successfully via compat SDK');
+        } catch (e) {
+          console.error('[FCM] Error in getFcmTokenWithMainSW:', e);
+          window.fcmTokenError = e.toString();
+          window.fcmTokenReady = true;
+        }
+      })();
+    };
+
+    // Legacy register function stub — no longer needed since the post_build.dart
+    // tool replaces flutter_service_worker.js with a proxy that imports
+    // firebase-messaging-sw.js via importScripts(). The SW at scope '/'
+    // already handles push events.
+    window.registerFirebaseMessagingSW = async function () {
+      console.log('[FCM] registerFirebaseMessagingSW is stubbed. The SW at scope / already imports firebase-messaging-sw.js via post_build.dart.');
+      return true;
+    };
+
+    // Force-refresh the FCM token by deleting the Firebase Messaging IndexedDB
+    // and re-initializing. Call this when the token is invalid or expired.
+    window.forceRefreshFcmToken = async function (vapidKey) {
+      console.log('[FCM] Force-refreshing FCM token...');
+
+      // 1. Delete Firebase Messaging IndexedDB to invalidate old token
+      const dbsToDelete = ['firebase-messaging-database', 'fcm_token_details_db', 'firebase-installations-database'];
+      for (const dbName of dbsToDelete) {
+        try {
+          await new Promise((resolve, reject) => {
+            const req = indexedDB.deleteDatabase(dbName);
+            req.onsuccess = () => { console.log('[FCM] Deleted DB:', dbName); resolve(); };
+            req.onerror = () => { console.warn('[FCM] Failed to delete DB:', dbName); resolve(); };
+            req.onblocked = () => { console.warn('[FCM] DB delete blocked:', dbName); resolve(); };
+          });
+        } catch (e) {
+          console.warn('[FCM] Error deleting DB:', dbName, e);
+        }
+      }
+
+      // 2. Clear cached token from SharedPreferences via Dart
+      // (handled on the Dart side)
+
+      // 3. Re-fetch token
+      window.fcmTokenReady = false;
+      window.lastFcmToken = null;
+      window.fcmTokenError = null;
+
       try {
-        const registration = await navigator.serviceWorker.register(
-          'firebase-messaging-sw.js',
-          { scope: '/firebase-cloud-messaging-push-scope' }
-        );
-        console.log('Firebase messaging service worker registered on custom scope:', registration.scope);
-        return true;
-      } catch (error) {
-        console.error('Failed to register firebase-messaging-sw.js:', error);
-        return false;
+        if (!messaging) {
+          throw new Error('Firebase Messaging is not initialized.');
+        }
+        console.log('[FCM] Fetching service worker registration before force-refresh...');
+        const reg = await navigator.serviceWorker.getRegistration();
+        console.log('[FCM] Requesting new token after force-refresh...');
+        let token;
+        try {
+          token = await messaging.getToken({ 
+            vapidKey: vapidKey,
+            serviceWorkerRegistration: reg
+          });
+        } catch (tokenError) {
+          const errStr = tokenError.toString();
+          if (errStr.includes('VersionError') || tokenError.name === 'VersionError') {
+            console.warn('[FCM] IndexedDB VersionError detected during force-refresh. Cleaning databases and retrying...');
+            
+            const dbsToDelete2 = ['firebase-messaging-database', 'fcm_token_details_db', 'firebase-installations-database'];
+            for (const dbName of dbsToDelete2) {
+              try {
+                await new Promise((resolve) => {
+                  const req = indexedDB.deleteDatabase(dbName);
+                  req.onsuccess = () => { console.log('[FCM] Deleted DB:', dbName); resolve(); };
+                  req.onerror = () => { console.warn('[FCM] Failed to delete DB:', dbName); resolve(); };
+                  req.onblocked = () => { console.warn('[FCM] DB delete blocked:', dbName); resolve(); };
+                });
+              } catch (dbErr) {
+                console.warn('[FCM] Error deleting DB:', dbName, dbErr);
+              }
+            }
+            
+            token = await messaging.getToken({ 
+              vapidKey: vapidKey,
+              serviceWorkerRegistration: reg
+            });
+          } else {
+            throw tokenError;
+          }
+        }
+        window.lastFcmToken = token;
+        window.fcmTokenReady = true;
+        console.log('[FCM] New token obtained after force-refresh');
+      } catch (e) {
+        console.error('[FCM] Error force-refreshing token:', e);
+        window.fcmTokenError = e.toString();
+        window.fcmTokenReady = true;
       }
     };
 
     let wakeLockSentinel = null;
 
-    window.requestScreenWakeLock = async function() {
+    window.requestScreenWakeLock = async function () {
       if (!('wakeLock' in navigator)) {
         console.log('Wake Lock API not supported');
         return false;
@@ -241,7 +508,7 @@
       }
     };
 
-    window.releaseScreenWakeLock = async function() {
+    window.releaseScreenWakeLock = async function () {
       if (wakeLockSentinel !== null) {
         await wakeLockSentinel.release();
         wakeLockSentinel = null;
@@ -251,12 +518,12 @@
       return false;
     };
 
-    window.isScreenWakeLockActive = function() {
+    window.isScreenWakeLockActive = function () {
       return wakeLockSentinel !== null;
     };
 
     // Force update helper: clear caches + unregister service workers + hard reload.
-    window.forceRefreshAppCache = async function() {
+    window.forceRefreshAppCache = async function () {
       try {
         // 1. Clear Cache Storage API caches (PWA cached assets)
         if ('caches' in window) {
@@ -264,21 +531,17 @@
           await Promise.all(keys.map((key) => caches.delete(key)));
         }
 
-        // 2. Clear Firebase Messaging IndexedDB to force-evict old FCM tokens
-        if ('indexedDB' in window) {
-          try {
-            window.indexedDB.deleteDatabase('firebase-messaging-database');
-            window.indexedDB.deleteDatabase('fcm_token_details_db');
-            console.log('Firebase Messaging IndexedDB cleared.');
-          } catch (e) {
-            console.warn('Failed to clear FCM IndexedDB:', e);
-          }
-        }
+        // NOTE: We intentionally do NOT clear Firebase Messaging IndexedDB
+        // (firebase-messaging-database, fcm_token_details_db) because doing so
+        // invalidates existing FCM tokens, requiring re-registration. On Android
+        // Chrome PWA, token re-registration can fail due to service worker scope
+        // conflicts. Preserving the IndexedDB ensures push notifications continue
+        // working after a cache refresh.
 
         // 2. Fetch critical entry point files with 'cache: reload' + nocache query to force-evict HTTP cache
         const criticalUrls = [
           window.location.pathname,
-          'flutter_bootstrap.js?v=1780540253054',
+          'flutter_bootstrap.js?v=1780814353154',
           'flutter_service_worker.js',
           'manifest.json',
           'version.json'
@@ -317,7 +580,7 @@
     };
 
     // Print Monthly Hijri Calendar Helper
-    window.printHijriCalendar = function(title, subtitle, locationName, calcMethod, columns, rows) {
+    window.printHijriCalendar = function (title, subtitle, locationName, calcMethod, columns, rows) {
       const printWindow = window.open('', '_blank');
       if (!printWindow) {
         alert('Mohon aktifkan pop-up browser untuk mencetak jadwal sholat.');
@@ -473,11 +736,11 @@
             </thead>
             <tbody>
               ${rows.map(row => {
-                let rowClass = '';
-                if (row.isSpecial) rowClass = 'special-day';
-                else if (row.isWeekend) rowClass = 'weekend';
+        let rowClass = '';
+        if (row.isSpecial) rowClass = 'special-day';
+        else if (row.isWeekend) rowClass = 'weekend';
 
-                return `
+        return `
                   <tr class="${rowClass}">
                     <td><strong>${row.dayName}</strong></td>
                     <td>${row.hijriDate}</td>
@@ -492,7 +755,7 @@
                     <td><span class="holiday-name">${row.keterangan || ''}</span></td>
                   </tr>
                 `;
-              }).join('')}
+      }).join('')}
             </tbody>
           </table>
 
@@ -510,7 +773,7 @@
       printWindow.document.write(htmlContent);
       printWindow.document.close();
 
-      setTimeout(function() {
+      setTimeout(function () {
         printWindow.print();
       }, 500);
       return true;
@@ -520,6 +783,7 @@
     window.registerFirebaseMessagingSW();
   </script>
 </head>
+
 <body>
   <!-- Loading Splash Screen UI -->
   <div class="loading-container" id="loading-indicator">
@@ -529,6 +793,7 @@
   </div>
 
 
-  <script src="flutter_bootstrap.js?v=1780540253054" async></script>
+  <script src="flutter_bootstrap.js?v=1780814353154" async></script>
 </body>
+
 </html>

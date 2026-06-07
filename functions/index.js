@@ -308,6 +308,13 @@ exports.subscribeToTopic = onRequest({ cors: true }, async (req, res) => {
   
   try {
     const response = await messaging.subscribeToTopic(token, topic);
+    
+    // Write/update the topic in active_topics using admin SDK
+    const db = admin.firestore();
+    await db.collection("active_topics").doc(topic).set({
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+
     res.status(200).send({ success: true, response });
   } catch (error) {
     res.status(500).send({ error: error.message });
@@ -321,14 +328,23 @@ exports.unsubscribeFromTopic = onRequest({ cors: true }, async (req, res) => {
   const messaging = admin.messaging();
   const { token, topic } = req.method === "POST" ? req.body : req.query;
   
-  if (!token || !topic) {
-    res.status(400).send("Missing token or topic parameter");
+  if (!topic) {
+    res.status(400).send("Missing topic parameter");
     return;
   }
   
   try {
-    const response = await messaging.unsubscribeFromTopic(token, topic);
-    res.status(200).send({ success: true, response });
+    if (token) {
+      await messaging.unsubscribeFromTopic(token, topic).catch((err) => {
+        console.warn(`[unsubscribeFromTopic] FCM unsubscribe warning: ${err.message}`);
+      });
+    }
+    
+    // Always delete the topic from active_topics
+    const db = admin.firestore();
+    await db.collection("active_topics").doc(topic).delete();
+
+    res.status(200).send({ success: true });
   } catch (error) {
     res.status(500).send({ error: error.message });
   }

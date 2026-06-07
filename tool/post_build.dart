@@ -9,15 +9,11 @@ void main() {
   if (file.existsSync()) {
     var content = file.readAsStringSync();
     
-    // Check if the service worker already imports firebase-messaging-sw.js to prevent duplicate imports
-    if (!content.contains('firebase-messaging-sw.js')) {
-      // Append the importScripts call to the end of the file
-      content += '\n// Firebase Cloud Messaging Web Push Integration\nimportScripts("firebase-messaging-sw.js");\n';
-      file.writeAsStringSync(content);
-      print('✅ Successfully patched build/web/flutter_service_worker.js with FCM integration!');
-    } else {
-      print('ℹ️ build/web/flutter_service_worker.js already patched.');
-    }
+    // Replace the deprecated Flutter self-destructing service worker completely
+    // with a proxy to our custom Firebase service worker. This prevents the infinite reload loop.
+    content = '// Proxy to Firebase FCM Service Worker\nimportScripts("firebase-messaging-sw.js");\n';
+    file.writeAsStringSync(content);
+    print('✅ Successfully replaced build/web/flutter_service_worker.js with FCM integration!');
   } else {
     print('⚠️ Warning: build/web/flutter_service_worker.js not found!');
   }

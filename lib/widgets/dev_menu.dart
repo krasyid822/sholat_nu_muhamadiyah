@@ -12,6 +12,7 @@ import 'dart:convert';
 import '../config/app_env.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/settings_provider.dart';
+
 class DevMenu extends StatefulWidget {
   const DevMenu({super.key});
 
@@ -50,12 +51,68 @@ class _DevMenuState extends State<DevMenu> {
       if (kIsWeb) {
         final permission = js.context['Notification']?['permission'];
         if (permission != 'granted') {
-          throw 'Izin notifikasi diblokir oleh browser ($permission).';
+          debugPrint(
+            '[DevMenu] Notification permission is $permission (not granted), but still trying to get token',
+          );
         }
       }
-      final token = await FirebaseMessaging.instance.getToken(
-        vapidKey: kIsWeb ? AppEnv.firebaseWebVapidKey : null,
-      );
+
+      String? token;
+      if (kIsWeb) {
+        try {
+          js.context.callMethod('getFcmTokenWithMainSW', [
+            AppEnv.firebaseWebVapidKey,
+          ]);
+
+          // On Android Chrome PWA, token retrieval can take up to 30s
+          // due to service worker registration and IndexedDB initialization.
+          int elapsedMs = 0;
+          const int maxWaitMs = 30000;
+          while (js.context['fcmTokenReady'] != true && elapsedMs < maxWaitMs) {
+            await Future.delayed(const Duration(milliseconds: 200));
+            elapsedMs += 200;
+          }
+
+          if (js.context['fcmTokenReady'] == true) {
+            final error = js.context['fcmTokenError'];
+            if (error != null) {
+              debugPrint('[DevMenu] Error getting token via JS helper: $error');
+              debugPrint(
+                '[DevMenu] Falling back to Flutter FirebaseMessaging.getToken()',
+              );
+              token = await FirebaseMessaging.instance.getToken(
+                vapidKey: AppEnv.firebaseWebVapidKey,
+              );
+            } else {
+              token = js.context['lastFcmToken'] as String?;
+              debugPrint(
+                '[DevMenu] Token obtained via JS helper: ${token?.substring(0, token.length > 20 ? 20 : token.length)}...',
+              );
+            }
+          } else {
+            debugPrint(
+              '[DevMenu] Timeout getting token via JS helper after ${maxWaitMs}ms',
+            );
+            debugPrint(
+              '[DevMenu] Falling back to Flutter FirebaseMessaging.getToken()',
+            );
+            token = await FirebaseMessaging.instance.getToken(
+              vapidKey: AppEnv.firebaseWebVapidKey,
+            );
+          }
+        } catch (e) {
+          debugPrint('[DevMenu] Error calling JS helper: $e');
+          debugPrint(
+            '[DevMenu] Falling back to Flutter FirebaseMessaging.getToken()',
+          );
+          token = await FirebaseMessaging.instance.getToken(
+            vapidKey: AppEnv.firebaseWebVapidKey,
+          );
+        }
+      } else {
+        token = await FirebaseMessaging.instance.getToken();
+      }
+
       if (mounted) {
         setState(() {
           _token = token;
@@ -68,6 +125,71 @@ class _DevMenuState extends State<DevMenu> {
           _token = 'Error: $e';
           _isLoading = false;
         });
+      }
+    }
+  }
+
+  Future<void> _forceRefreshToken() async {
+    setState(() => _isLoading = true);
+    try {
+      String? token;
+      if (kIsWeb) {
+        try {
+          js.context.callMethod('forceRefreshFcmToken', [
+            AppEnv.firebaseWebVapidKey,
+          ]);
+
+          int elapsedMs = 0;
+          const int maxWaitMs = 30000;
+          while (js.context['fcmTokenReady'] != true && elapsedMs < maxWaitMs) {
+            await Future.delayed(const Duration(milliseconds: 200));
+            elapsedMs += 200;
+          }
+
+          if (js.context['fcmTokenReady'] == true) {
+            final error = js.context['fcmTokenError'];
+            if (error != null) {
+              debugPrint('[DevMenu] Force-refresh error: $error');
+              token = await FirebaseMessaging.instance.getToken(
+                vapidKey: AppEnv.firebaseWebVapidKey,
+              );
+            } else {
+              token = js.context['lastFcmToken'] as String?;
+            }
+          } else {
+            debugPrint('[DevMenu] Force-refresh timeout');
+            token = await FirebaseMessaging.instance.getToken(
+              vapidKey: AppEnv.firebaseWebVapidKey,
+            );
+          }
+        } catch (e) {
+          debugPrint('[DevMenu] Force-refresh JS call failed: $e');
+          token = await FirebaseMessaging.instance.getToken(
+            vapidKey: AppEnv.firebaseWebVapidKey,
+          );
+        }
+      } else {
+        token = await FirebaseMessaging.instance.getToken();
+      }
+
+      if (mounted) {
+        setState(() {
+          _token = token;
+          _isLoading = false;
+        });
+        if (token != null && token.isNotEmpty) {
+          _showSnack('Token berhasil di-refresh!');
+        } else {
+          _showSnack('Gagal mendapatkan token setelah refresh');
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _token = 'Error: $e';
+          _isLoading = false;
+        });
+        _showSnack('Error: $e');
       }
     }
   }
@@ -135,7 +257,9 @@ class _DevMenuState extends State<DevMenu> {
     if (mounted) setState(() => _isLoading = true);
     try {
       final clientEpochBefore = DateTime.now().millisecondsSinceEpoch;
-      final url = Uri.parse('https://us-central1-al-waqt-9cdb7.cloudfunctions.net/getServerTime');
+      final url = Uri.parse(
+        'https://getservertime-ebadp63kua-uc.a.run.app',
+      );
       final response = await http.get(url).timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -178,7 +302,9 @@ class _DevMenuState extends State<DevMenu> {
     if (_serverTimeOffsetMs == null) return;
     final nowClient = DateTime.now().millisecondsSinceEpoch;
     final nowServerEpoch = nowClient + _serverTimeOffsetMs!;
-    final nowServerDateTime = DateTime.fromMillisecondsSinceEpoch(nowServerEpoch);
+    final nowServerDateTime = DateTime.fromMillisecondsSinceEpoch(
+      nowServerEpoch,
+    );
 
     final formatter = DateFormat('yyyy-MM-dd HH:mm:ss');
     final formattedLocal = formatter.format(nowServerDateTime.toLocal());
@@ -244,53 +370,64 @@ class _DevMenuState extends State<DevMenu> {
       _showSnack('❌ FCM Token tidak valid atau belum dimuat');
       return;
     }
-    
+
     setState(() => _isLoading = true);
-    
+
     try {
-      // Production region-based function URL for V2 (defaults to us-central1)
-      final functionUrl = 'https://testpushnotification-al-waqt-9cdb7-uc.a.run.app';
-      final fallbackUrl = 'https://us-central1-al-waqt-9cdb7.cloudfunctions.net/testPushNotification';
-      
+      // Production region-based function URL for V2
+      final functionUrl =
+          'https://testpushnotification-ebadp63kua-uc.a.run.app';
+      final fallbackUrl =
+          'https://testpushnotification-ebadp63kua-uc.a.run.app';
+
       var targetUrl = functionUrl;
-      
+
       // Let's perform POST request
-      final response = await http.post(
-        Uri.parse(targetUrl),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'token': _token,
-          'title': '🕌 Tes Push Server-Side',
-          'body': 'Sukses! Ini adalah push notification asli dikirim langsung dari Firebase Cloud Functions.',
-        }),
-      ).timeout(const Duration(seconds: 5)).catchError((_) async {
-        // Fallback to traditional functions domain
-        return await http.post(
-          Uri.parse(fallbackUrl),
-          headers: {'Content-Type': 'application/json'},
-          body: json.encode({
-            'token': _token,
-            'title': '🕌 Tes Push Server-Side',
-            'body': 'Sukses! Ini adalah push notification asli dikirim langsung dari Firebase Cloud Functions.',
-          }),
-        ).timeout(const Duration(seconds: 5));
-      });
-      
+      final response = await http
+          .post(
+            Uri.parse(targetUrl),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({
+              'token': _token,
+              'title': '🕌 Tes Push Server-Side',
+              'body':
+                  'Sukses! Ini adalah push notification asli dikirim langsung dari Firebase Cloud Functions.',
+            }),
+          )
+          .timeout(const Duration(seconds: 5))
+          .catchError((_) async {
+            return await http
+                .post(
+                  Uri.parse(fallbackUrl),
+                  headers: {'Content-Type': 'application/json'},
+                  body: json.encode({
+                    'token': _token,
+                    'title': '🕌 Tes Push Server-Side',
+                    'body':
+                        'Sukses! Ini adalah push notification asli dikirim langsung dari Firebase Cloud Functions.',
+                  }),
+                )
+                .timeout(const Duration(seconds: 5));
+          });
+
       if (response.statusCode == 200) {
         _showSnack('✅ Server Push berhasil dikirim!');
         setState(() {
-          _lastMessage = '[Server Push] Sukses mengirim push ke token pada ${DateTime.now().toLocal()}\nResponse: ${response.body}';
+          _lastMessage =
+              '[Server Push] Sukses mengirim push ke token pada ${DateTime.now().toLocal()}\nResponse: ${response.body}';
         });
       } else {
         _showSnack('❌ Server Push gagal: Kode ${response.statusCode}');
         setState(() {
-          _lastMessage = '[Server Push] Gagal (Kode ${response.statusCode})\nDetail: ${response.body}';
+          _lastMessage =
+              '[Server Push] Gagal (Kode ${response.statusCode})\nDetail: ${response.body}';
         });
       }
     } catch (e) {
       _showSnack('❌ Hubungan ke server gagal: $e');
       setState(() {
-        _lastMessage = '[Server Push] Gagal menghubungi Cloud Function.\nError: $e\n\nTips: Jika berjalan secara lokal di emulator, pastikan emulator functions sudah dinyalakan.';
+        _lastMessage =
+            '[Server Push] Gagal menghubungi Cloud Function.\nError: $e\n\nTips: Jika berjalan secara lokal di emulator, pastikan emulator functions sudah dinyalakan.';
       });
     } finally {
       if (mounted) {
@@ -299,47 +436,53 @@ class _DevMenuState extends State<DevMenu> {
     }
   }
 
-  Future<void> _sendSimulatedAdhanNotification(String prayerName, String topic) async {
+  Future<void> _sendSimulatedAdhanNotification(
+    String prayerName,
+    String topic,
+  ) async {
     setState(() => _isLoading = true);
-    
+
     try {
-      final targetUrl = 'https://simulatescheduler-al-waqt-9cdb7-uc.a.run.app';
-      final fallbackUrl = 'https://us-central1-al-waqt-9cdb7.cloudfunctions.net/simulateScheduler';
-      
+      final targetUrl = 'https://simulatescheduler-ebadp63kua-uc.a.run.app';
+      final fallbackUrl =
+          'https://simulatescheduler-ebadp63kua-uc.a.run.app';
+
       // Let's perform POST request
-      final response = await http.post(
-        Uri.parse(targetUrl),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'topic': topic,
-          'prayerName': prayerName,
-        }),
-      ).timeout(const Duration(seconds: 5)).catchError((_) async {
-        return await http.post(
-          Uri.parse(fallbackUrl),
-          headers: {'Content-Type': 'application/json'},
-          body: json.encode({
-            'topic': topic,
-            'prayerName': prayerName,
-          }),
-        ).timeout(const Duration(seconds: 5));
-      });
-      
+      final response = await http
+          .post(
+            Uri.parse(targetUrl),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({'topic': topic, 'prayerName': prayerName}),
+          )
+          .timeout(const Duration(seconds: 5))
+          .catchError((_) async {
+            return await http
+                .post(
+                  Uri.parse(fallbackUrl),
+                  headers: {'Content-Type': 'application/json'},
+                  body: json.encode({'topic': topic, 'prayerName': prayerName}),
+                )
+                .timeout(const Duration(seconds: 5));
+          });
+
       if (response.statusCode == 200) {
         _showSnack('✅ Simulasi $prayerName berhasil dikirim!');
         setState(() {
-          _lastMessage = '[Simulasi $prayerName] Sukses dikirim ke topik $topic pada ${DateTime.now().toLocal()}\nResponse: ${response.body}';
+          _lastMessage =
+              '[Simulasi $prayerName] Sukses dikirim ke topik $topic pada ${DateTime.now().toLocal()}\nResponse: ${response.body}';
         });
       } else {
         _showSnack('❌ Simulasi gagal: Kode ${response.statusCode}');
         setState(() {
-          _lastMessage = '[Simulasi $prayerName] Gagal (Kode ${response.statusCode})\nDetail: ${response.body}';
+          _lastMessage =
+              '[Simulasi $prayerName] Gagal (Kode ${response.statusCode})\nDetail: ${response.body}';
         });
       }
     } catch (e) {
       _showSnack('❌ Hubungan ke server gagal: $e');
       setState(() {
-        _lastMessage = '[Simulasi] Gagal menghubungi Cloud Function.\nError: $e';
+        _lastMessage =
+            '[Simulasi] Gagal menghubungi Cloud Function.\nError: $e';
       });
     } finally {
       if (mounted) {
@@ -353,26 +496,34 @@ class _DevMenuState extends State<DevMenu> {
       _showSnack('❌ Token FCM kosong. Tidak bisa mendaftar topik.');
       return;
     }
-    
+
     setState(() => _isLoading = true);
-    
+
     try {
-      final url = Uri.parse('https://us-central1-al-waqt-9cdb7.cloudfunctions.net/subscribeToTopic');
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'token': _token, 'topic': topic}),
-      ).timeout(const Duration(seconds: 5));
-      
+      final url = Uri.parse(
+        'https://subscribetotopic-ebadp63kua-uc.a.run.app',
+      );
+      final response = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({'token': _token, 'topic': topic}),
+          )
+          .timeout(const Duration(seconds: 5));
+
       if (response.statusCode == 200) {
         if (mounted) _showSnack('✅ Sukses mendaftar ke topik "$topic"');
         setState(() {
-          _lastMessage = '[Subscribe Topic] Sukses mendaftar token ke topik "$topic" via Server.\nResponse: ${response.body}';
+          _lastMessage =
+              '[Subscribe Topic] Sukses mendaftar token ke topik "$topic" via Server.\nResponse: ${response.body}';
         });
       } else {
-        if (mounted) _showSnack('❌ Gagal daftar topik: Kode ${response.statusCode}');
+        if (mounted) {
+          _showSnack('❌ Gagal daftar topik: Kode ${response.statusCode}');
+        }
         setState(() {
-          _lastMessage = '[Subscribe Topic] Gagal (Kode ${response.statusCode})\nDetail: ${response.body}';
+          _lastMessage =
+              '[Subscribe Topic] Gagal (Kode ${response.statusCode})\nDetail: ${response.body}';
         });
       }
     } catch (e) {
@@ -387,26 +538,34 @@ class _DevMenuState extends State<DevMenu> {
       _showSnack('❌ Token FCM kosong.');
       return;
     }
-    
+
     setState(() => _isLoading = true);
-    
+
     try {
-      final url = Uri.parse('https://us-central1-al-waqt-9cdb7.cloudfunctions.net/unsubscribeFromTopic');
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'token': _token, 'topic': topic}),
-      ).timeout(const Duration(seconds: 5));
-      
+      final url = Uri.parse(
+        'https://unsubscribefromtopic-ebadp63kua-uc.a.run.app',
+      );
+      final response = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({'token': _token, 'topic': topic}),
+          )
+          .timeout(const Duration(seconds: 5));
+
       if (response.statusCode == 200) {
         if (mounted) _showSnack('✅ Sukses keluar dari topik "$topic"');
         setState(() {
-          _lastMessage = '[Unsubscribe Topic] Sukses menghapus token dari topik "$topic" via Server.\nResponse: ${response.body}';
+          _lastMessage =
+              '[Unsubscribe Topic] Sukses menghapus token dari topik "$topic" via Server.\nResponse: ${response.body}';
         });
       } else {
-        if (mounted) _showSnack('❌ Gagal keluar topik: Kode ${response.statusCode}');
+        if (mounted) {
+          _showSnack('❌ Gagal keluar topik: Kode ${response.statusCode}');
+        }
         setState(() {
-          _lastMessage = '[Unsubscribe Topic] Gagal (Kode ${response.statusCode})\nDetail: ${response.body}';
+          _lastMessage =
+              '[Unsubscribe Topic] Gagal (Kode ${response.statusCode})\nDetail: ${response.body}';
         });
       }
     } catch (e) {
@@ -537,6 +696,15 @@ class _DevMenuState extends State<DevMenu> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: _actionButton(
+                    icon: Icons.autorenew,
+                    label: 'Force Refresh Token (Clear & Re-register)',
+                    onPressed: _forceRefreshToken,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -629,8 +797,10 @@ class _DevMenuState extends State<DevMenu> {
                 Consumer(
                   builder: (context, ref, child) {
                     ref.watch(settingsProvider);
-                    final topic = ref.read(settingsProvider.notifier).getFcmTopic();
-                    
+                    final topic = ref
+                        .read(settingsProvider.notifier)
+                        .getFcmTopic();
+
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -643,7 +813,11 @@ class _DevMenuState extends State<DevMenu> {
                           ),
                           child: SelectableText(
                             'Topik Aktif: $topic',
-                            style: const TextStyle(fontSize: 10, fontFamily: 'monospace', color: Colors.white54),
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontFamily: 'monospace',
+                              color: Colors.white54,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -651,20 +825,67 @@ class _DevMenuState extends State<DevMenu> {
                           dropdownColor: cardColor,
                           decoration: InputDecoration(
                             labelText: 'Pilih Waktu Sholat',
-                            labelStyle: const TextStyle(color: Colors.white54, fontSize: 13),
+                            labelStyle: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 13,
+                            ),
                             filled: true,
                             fillColor: surfaceColor,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
                           value: _selectedSimulatedPrayer,
                           items: const [
-                            DropdownMenuItem(value: 'Imsak', child: Text('Imsak', style: TextStyle(color: Colors.white))),
-                            DropdownMenuItem(value: 'Subuh', child: Text('Subuh', style: TextStyle(color: Colors.white))),
-                            DropdownMenuItem(value: 'Syuruq', child: Text('Syuruq', style: TextStyle(color: Colors.white))),
-                            DropdownMenuItem(value: 'Dzuhur', child: Text('Dzuhur', style: TextStyle(color: Colors.white))),
-                            DropdownMenuItem(value: 'Ashar', child: Text('Ashar', style: TextStyle(color: Colors.white))),
-                            DropdownMenuItem(value: 'Maghrib', child: Text('Maghrib', style: TextStyle(color: Colors.white))),
-                            DropdownMenuItem(value: 'Isya', child: Text('Isya', style: TextStyle(color: Colors.white))),
+                            DropdownMenuItem(
+                              value: 'Imsak',
+                              child: Text(
+                                'Imsak',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ),
+                            DropdownMenuItem(
+                              value: 'Subuh',
+                              child: Text(
+                                'Subuh',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ),
+                            DropdownMenuItem(
+                              value: 'Syuruq',
+                              child: Text(
+                                'Syuruq',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ),
+                            DropdownMenuItem(
+                              value: 'Dzuhur',
+                              child: Text(
+                                'Dzuhur',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ),
+                            DropdownMenuItem(
+                              value: 'Ashar',
+                              child: Text(
+                                'Ashar',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ),
+                            DropdownMenuItem(
+                              value: 'Maghrib',
+                              child: Text(
+                                'Maghrib',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ),
+                            DropdownMenuItem(
+                              value: 'Isya',
+                              child: Text(
+                                'Isya',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ),
                           ],
                           onChanged: (val) {
                             if (val != null) {
@@ -680,7 +901,10 @@ class _DevMenuState extends State<DevMenu> {
                           child: _actionButton(
                             icon: Icons.play_arrow_rounded,
                             label: 'Kirim Simulasi Adzan Server',
-                            onPressed: () => _sendSimulatedAdhanNotification(_selectedSimulatedPrayer, topic),
+                            onPressed: () => _sendSimulatedAdhanNotification(
+                              _selectedSimulatedPrayer,
+                              topic,
+                            ),
                             color: Colors.indigo.shade800,
                           ),
                         ),
