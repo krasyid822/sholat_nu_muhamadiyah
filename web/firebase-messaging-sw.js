@@ -1,5 +1,5 @@
 // Firebase Messaging Service Worker
-// Rebuilt to be extremely robust for server-side push testing
+// Handles background push notifications for Al-Waqt PWA
 
 importScripts("https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js");
 importScripts("https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js");
@@ -18,24 +18,59 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
-// Force immediate activation and take control of all clients
+// Do NOT use skipWaiting() here.
+//
+// skipWaiting() forces the new SW to take control immediately, even while
+// the old SW is still handling push events. This can cause the browser to
+// rotate push subscription encryption keys mid-session. If a cached FCM
+// token still references the old keys, push messages encrypted with those
+// old keys will fail to decrypt → "unrecognized Content-Encoding" error.
+//
+// Instead, let the browser naturally activate the new SW only when all
+// clients (tabs/PWA windows) close and reopen. This ensures encryption
+// keys stay synchronized.
 self.addEventListener('install', (event) => {
-  console.log('[SW] Install event - forcing immediate activation');
-  event.waitUntil(self.skipWaiting());
+  console.log('[SW] Install event — waiting for natural activation (no skipWaiting)');
 });
 
 self.addEventListener('activate', (event) => {
-  console.log('[SW] Activate event - claiming all clients');
+  console.log('[SW] Activate event — claiming clients');
+  event.waitUntil(self.clients.claim());
+});
+
+// Handle push subscription changes.
+//
+// When the browser detects the push subscription's encryption keys have
+// changed (e.g., after a SW update or browser key rotation), this event
+// fires. We re-subscribe to keep push delivery working.
+self.addEventListener('pushsubscriptionchange', (event) => {
+  console.log('[SW] Push subscription changed — re-subscribing');
   event.waitUntil(
-    self.clients.claim().then(() => {
-      console.log('[SW] Successfully claimed clients');
+    self.registration.pushManager.subscribe(event.oldSubscription?.options ?? {
+      userVisibleOnly: true,
     })
+      .then((newSub) => {
+        console.log('[SW] Re-subscribed successfully:', newSub.endpoint);
+        // Notify all clients that the subscription changed so they can
+        // refresh their FCM token.
+        self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+          clients.forEach((client) => {
+            client.postMessage({ type: 'PUSH_SUBSCRIPTION_CHANGED' });
+          });
+        });
+      })
+      .catch((err) => {
+        console.error('[SW] Re-subscribe failed:', err);
+      })
   );
 });
 
-// Recommended: Handle background messages via Firebase SDK
+// Handle background messages via Firebase SDK.
+//
+// This fires when a push arrives while the PWA is not in the foreground.
+// Foreground messages are handled by messaging.onMessage() in index.html.
 messaging.onBackgroundMessage((payload) => {
-  console.log("[SW] Background message received via Firebase SDK:", payload);
+  console.log("[SW] Background message received:", payload);
 
   const title = payload.notification?.title || payload.data?.title || "Al-Waqt";
   const options = {
@@ -43,91 +78,42 @@ messaging.onBackgroundMessage((payload) => {
     icon: "/icons/Icon-192.png",
     badge: "/icons/Icon-192.png",
     vibrate: [200, 100, 200],
+    tag: 'fcm-bg-' + Date.now(),
+    requireInteraction: true,
     data: payload.data || {},
   };
 
   return self.registration.showNotification(title, options);
 });
 
-// Fallback: Listen to the raw 'push' event to guarantee delivery
-// even if Firebase SDK onBackgroundMessage fails to trigger.
-self.addEventListener('push', (event) => {
-  console.log('[SW] Raw push event received:', event);
-  
-  if (!event.data) {
-    console.warn('[SW] Push event has no data.');
-    return;
-  }
+// NOTE: We intentionally do NOT add a raw 'push' event listener here.
+//
+// The Firebase Messaging SDK (loaded via importScripts above) already
+// registers its own internal 'push' event listener that:
+//   1. Decrypts and parses the FCM payload
+//   2. Routes foreground messages to onMessage() in the main page
+//   3. Routes background messages to onBackgroundMessage() above
+//
+// Adding a second 'push' listener causes double-processing, race
+// conditions, and can interfere with the SDK's decryption pipeline.
 
-  // We let Firebase SDK process it if it can.
-  // But if the push message contains a notification object that is not shown,
-  // we show a fallback notification here.
-  try {
-    const data = event.data.json();
-    console.log('[SW] Parsed push data:', data);
-
-    // If the data is formatted as FCM notification, the SDK will handle it.
-    // If it's a data payload or custom payload, we handle it explicitly.
-    if (data.data || data.notification) {
-      const title = data.notification?.title || data.data?.title || "Al-Waqt (Fallback)";
-      const body = data.notification?.body || data.data?.body || "";
-      
-      event.waitUntil(
-        self.registration.getNotifications().then((notifications) => {
-          // Check if a notification with similar content is already showing to avoid duplicates
-          const isDuplicate = notifications.some(n => n.title === title && n.body === body);
-          if (isDuplicate) {
-            console.log('[SW] Duplicate notification detected, skipping fallback show');
-            return;
-          }
-          
-          return self.registration.showNotification(title, {
-            body: body,
-            icon: "/icons/Icon-192.png",
-            badge: "/icons/Icon-192.png",
-            vibrate: [200, 100, 200],
-            data: data.data || {},
-          });
-        })
-      );
-    }
-  } catch (err) {
-    console.error('[SW] Error parsing raw push data:', err);
-    // If it's plain text:
-    const text = event.data.text();
-    console.log('[SW] Raw push text:', text);
-    event.waitUntil(
-      self.registration.showNotification("Al-Waqt Notification", {
-        body: text,
-        icon: "/icons/Icon-192.png",
-        badge: "/icons/Icon-192.png",
-      })
-    );
-  }
-});
-
-// Handle notification click event - open/focus app window
+// Handle notification click — open/focus app window
 self.addEventListener("notificationclick", (event) => {
-  console.log("[SW] Notification clicked:", event.notification);
+  console.log("[SW] Notification clicked:", event.notification.tag);
   event.notification.close();
 
   const targetUrl = self.registration.scope || "/";
 
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-      // Prioritize focusing an existing window/tab
       for (const client of clients) {
         if (client.url.startsWith(targetUrl)) {
           return client.focus();
         }
       }
-      // If no client open, open a new one
       if (self.clients.openWindow) {
         return self.clients.openWindow(targetUrl);
       }
     })
   );
 });
-
-
-

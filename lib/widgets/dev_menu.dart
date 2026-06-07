@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'dart:js' as js;
+import '../utils/js_helper.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 
@@ -12,17 +13,21 @@ import 'dart:convert';
 import '../config/app_env.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/settings_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-class DevMenu extends StatefulWidget {
+class DevMenu extends ConsumerStatefulWidget {
   const DevMenu({super.key});
 
   @override
-  State<DevMenu> createState() => _DevMenuState();
+  ConsumerState<DevMenu> createState() => _DevMenuState();
 }
 
-class _DevMenuState extends State<DevMenu> {
+class _DevMenuState extends ConsumerState<DevMenu> {
   String? _token;
   String _permissionStatus = 'Checking...';
+  String _swStatus = 'Checking...';
+  String _computedTopic = '';
+  String _lastSubscribedTopic = '';
   String _lastMessage = '';
   bool _isLoading = false;
   String _selectedSimulatedPrayer = 'Subuh';
@@ -37,6 +42,7 @@ class _DevMenuState extends State<DevMenu> {
     _checkPermission();
     _listenForMessages();
     _fetchServerTime();
+    _loadDiagnostics();
   }
 
   @override
@@ -118,6 +124,7 @@ class _DevMenuState extends State<DevMenu> {
           _token = token;
           _isLoading = false;
         });
+        _loadDiagnostics();
       }
     } catch (e) {
       if (mounted) {
@@ -177,6 +184,7 @@ class _DevMenuState extends State<DevMenu> {
           _token = token;
           _isLoading = false;
         });
+        _loadDiagnostics();
         if (token != null && token.isNotEmpty) {
           _showSnack('Token berhasil di-refresh!');
         } else {
@@ -190,6 +198,39 @@ class _DevMenuState extends State<DevMenu> {
           _isLoading = false;
         });
         _showSnack('Error: $e');
+      }
+    }
+  }
+
+  Future<void> _loadDiagnostics() async {
+    if (!kIsWeb) {
+      if (mounted) setState(() => _swStatus = 'N/A (Mobile)');
+    } else {
+      try {
+        fetchServiceWorkerStatus((String status) {
+          if (mounted) setState(() => _swStatus = status);
+        });
+      } catch (e) {
+        if (mounted) setState(() => _swStatus = 'Error: $e');
+      }
+    }
+
+    try {
+      final computed = ref.read(settingsProvider.notifier).getFcmTopic();
+      final prefs = await SharedPreferences.getInstance();
+      final lastSubscribed = prefs.getString('last_subscribed_fcm_topic') ?? 'None';
+      if (mounted) {
+        setState(() {
+          _computedTopic = computed;
+          _lastSubscribedTopic = lastSubscribed;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _computedTopic = 'Error: $e';
+          _lastSubscribedTopic = 'Error: $e';
+        });
       }
     }
   }
@@ -636,13 +677,35 @@ class _DevMenuState extends State<DevMenu> {
                 ),
                 const Divider(color: Colors.white12),
                 _statusRow(
-                  'Firebase',
+                  'Firebase Connection',
                   _token == null
                       ? 'Loading...'
                       : (_token!.startsWith('Error') ? 'Gagal' : 'Terhubung'),
                   _token != null && !_token!.startsWith('Error')
                       ? Colors.green
                       : Colors.red,
+                ),
+                const Divider(color: Colors.white12),
+                _statusRow(
+                  'Service Worker Status',
+                  _swStatus,
+                  _swStatus == 'Active' || _swStatus == 'Aktif'
+                      ? Colors.green
+                      : (_swStatus.startsWith('Error') ? Colors.red : Colors.orange),
+                ),
+                const Divider(color: Colors.white12),
+                _statusRow(
+                  'Target FCM Topic',
+                  _computedTopic,
+                  Colors.blue,
+                ),
+                const Divider(color: Colors.white12),
+                _statusRow(
+                  'Subscribed Topic',
+                  _lastSubscribedTopic,
+                  _lastSubscribedTopic == _computedTopic
+                      ? Colors.green
+                      : Colors.orange,
                 ),
               ],
             ),

@@ -157,50 +157,55 @@
 
       console.log('[Notification] Attempting to show:', title);
 
-      // Strategy 1: Try to get the active SW registration and show via SW
-      // This is the most reliable method on Android Chrome PWA (standalone mode)
-      // because new Notification() is blocked (Illegal constructor).
+      // Strategy 1: Service Worker registration (preferred on Android Chrome PWA/mobile)
       async function showViaServiceWorker() {
         if (!('serviceWorker' in navigator)) return false;
         try {
-          // First try getRegistration() for the current scope, which is more specific
+          // Check if active registration exists first
           let reg = await navigator.serviceWorker.getRegistration();
           if (reg && reg.active) {
             await reg.showNotification(title, options);
-            console.log('[Notification] Shown via getRegistration()');
+            console.log('[Notification] Shown via active getRegistration()');
             return true;
           }
-          // Fall back to ready (waits for activation)
-          reg = await navigator.serviceWorker.ready;
+
+          // Fall back to ready with a 2-second timeout to prevent infinite hanging
+          const readyPromise = navigator.serviceWorker.ready;
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Timeout waiting for Service Worker ready')), 2000)
+          );
+
+          reg = await Promise.race([readyPromise, timeoutPromise]);
           if (reg && reg.active) {
             await reg.showNotification(title, options);
             console.log('[Notification] Shown via serviceWorker.ready');
             return true;
           }
         } catch (err) {
-          console.warn('[Notification] SW method failed:', err);
+          console.warn('[Notification] SW method failed or timed out:', err);
         }
         return false;
       }
 
-      // Strategy 2: Legacy Notification constructor (blocked on Android Chrome PWA)
+      // Strategy 2: Legacy Notification constructor (fallback, works on desktop)
       function showViaLegacy() {
         try {
           new Notification(title, options);
           console.log('[Notification] Shown via legacy constructor');
           return true;
         } catch (e) {
-          console.warn('[Notification] Legacy constructor blocked:', e);
+          console.warn('[Notification] Legacy constructor blocked/failed:', e);
           return false;
         }
       }
 
-      // Try SW first, then legacy
+      // Execute: Try SW first (best for mobile/PWA), fallback to legacy constructor
       showViaServiceWorker().then((swShown) => {
         if (!swShown) {
           showViaLegacy();
         }
-      }).catch(() => {
+      }).catch((err) => {
+        console.error('[Notification] Error during SW notification attempt:', err);
         showViaLegacy();
       });
     };
@@ -337,12 +342,19 @@
     //    firebase-messaging-sw.js). This SW already handles push events.
     // 2. If the compat SDK fails, fall back to the Flutter firebase_messaging
     //    plugin's getToken() which uses the same approach.
+    window._fcmTokenInvalidated = false;
+
     window.getFcmTokenWithMainSW = function (vapidKey) {
       window.fcmTokenReady = false;
       window.lastFcmToken = null;
       window.fcmTokenError = null;
 
       (async () => {
+        // If the token was invalidated by a SW change, log it
+        if (window._fcmTokenInvalidated) {
+          console.log('[FCM] Token was invalidated by SW controller change, requesting fresh token');
+          window._fcmTokenInvalidated = false;
+        }
         try {
           if (!messaging) {
             throw new Error('Firebase Messaging is not initialized on the main page.');
@@ -353,6 +365,10 @@
           let reg = null;
           try {
             reg = await navigator.serviceWorker.getRegistration();
+            if (!reg) {
+              console.log('[FCM] Active registration not found yet, waiting for serviceWorker.ready...');
+              reg = await navigator.serviceWorker.ready;
+            }
             console.log('[FCM] Service worker registration:', reg ? 'found' : 'not found');
           } catch (swError) {
             console.warn('[FCM] navigator.serviceWorker.getRegistration failed:', swError);
@@ -404,13 +420,38 @@
       })();
     };
 
-    // Legacy register function stub — no longer needed since the post_build.dart
-    // tool replaces flutter_service_worker.js with a proxy that imports
-    // firebase-messaging-sw.js via importScripts(). The SW at scope '/'
-    // already handles push events.
     window.registerFirebaseMessagingSW = async function () {
-      console.log('[FCM] registerFirebaseMessagingSW is stubbed. The SW at scope / already imports firebase-messaging-sw.js via post_build.dart.');
-      return true;
+      if (!('serviceWorker' in navigator)) {
+        console.warn('[FCM] Service worker not supported in this browser.');
+        return false;
+      }
+      try {
+        let reg = await navigator.serviceWorker.getRegistration();
+        if (reg && reg.active) {
+          console.log('[FCM] SW already active:', reg.active.scriptURL);
+          return true;
+        }
+
+        // Register the service worker.
+        // - Localhost: register firebase-messaging-sw.js directly (no flutter build output)
+        // - Production: register flutter_service_worker.js (our 2-line proxy that
+        //   imports firebase-messaging-sw.js via importScripts). This is the same
+        //   URL Flutter would use, preventing scope/URL conflicts.
+        //
+        // NOTE: We are now the SOLE registrar of the SW. Flutter's bootstrap has
+        // been patched by post_build.dart to remove serviceWorkerSettings, so it
+        // no longer registers or updates the SW.
+        const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const swUrl = isLocalDev ? 'firebase-messaging-sw.js' : 'flutter_service_worker.js';
+
+        console.log('[FCM] No active SW found. Registering:', swUrl);
+        reg = await navigator.serviceWorker.register(swUrl);
+        console.log('[FCM] SW registered:', reg.scope);
+        return true;
+      } catch (err) {
+        console.error('[FCM] SW registration failed:', err);
+        return false;
+      }
     };
 
     // Force-refresh the FCM token by deleting the Firebase Messaging IndexedDB
@@ -490,6 +531,58 @@
         window.fcmTokenReady = true;
       }
     };
+    window.getServiceWorkerStatus = async function () {
+      if (!('serviceWorker' in navigator)) return 'Unsupported';
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (!reg) return 'Not Registered';
+        if (reg.installing) return 'Installing';
+        if (reg.waiting) return 'Waiting';
+        if (reg.active) return 'Active';
+        return 'Registered';
+      } catch (e) {
+        return 'Error: ' + e.message;
+      }
+    };
+    window.fetchServiceWorkerStatus = function (callback) {
+      if (!('serviceWorker' in navigator)) {
+        callback('Unsupported');
+        return;
+      }
+      navigator.serviceWorker.getRegistration()
+        .then((reg) => {
+          if (!reg) { callback('Not Registered'); return; }
+          if (reg.installing) { callback('Installing'); return; }
+          if (reg.waiting) { callback('Waiting'); return; }
+          if (reg.active) { callback('Active'); return; }
+          callback('Registered');
+        })
+        .catch((e) => {
+          callback('Error: ' + e.message);
+        });
+    };
+
+    // Detect when a new service worker takes control (e.g., after deploy).
+    // Invalidate the cached FCM token so a fresh one is obtained that
+    // matches the new push subscription's encryption keys.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        console.log('[FCM] SW controller changed — invalidating cached token');
+        window.fcmTokenReady = false;
+        window.lastFcmToken = null;
+        window._fcmTokenInvalidated = true;
+      });
+
+      // Listen for messages from the SW (e.g., PUSH_SUBSCRIPTION_CHANGED)
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data && event.data.type === 'PUSH_SUBSCRIPTION_CHANGED') {
+          console.log('[FCM] Push subscription changed (from SW) — invalidating cached token');
+          window.fcmTokenReady = false;
+          window.lastFcmToken = null;
+          window._fcmTokenInvalidated = true;
+        }
+      });
+    }
 
     let wakeLockSentinel = null;
 
@@ -541,7 +634,7 @@
         // 2. Fetch critical entry point files with 'cache: reload' + nocache query to force-evict HTTP cache
         const criticalUrls = [
           window.location.pathname,
-          'flutter_bootstrap.js?v=1780814353154',
+          'flutter_bootstrap.js?v=1780830474441',
           'flutter_service_worker.js',
           'manifest.json',
           'version.json'
@@ -793,7 +886,7 @@
   </div>
 
 
-  <script src="flutter_bootstrap.js?v=1780814353154" async></script>
+  <script src="flutter_bootstrap.js?v=1780830474441" async></script>
 </body>
 
 </html>

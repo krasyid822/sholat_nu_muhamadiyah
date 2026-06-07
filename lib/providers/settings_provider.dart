@@ -522,6 +522,22 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
       return FirebaseMessaging.instance.getToken();
     }
 
+    // Check if the JS side invalidated the token (e.g., SW controller changed,
+    // push subscription rotated). If so, clear the cached token and force a
+    // fresh request to match the new push subscription encryption keys.
+    try {
+      final invalidated = js.context['_fcmTokenInvalidated'];
+      if (invalidated == true) {
+        debugPrint('[FCM] Token invalidated by SW change, clearing cached token');
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('fcm_token');
+        js.context['_fcmTokenInvalidated'] = false;
+        // Fall through to request fresh token below
+      }
+    } catch (e) {
+      debugPrint('[FCM] Error checking token invalidation flag: $e');
+    }
+
     // Check cached token first to avoid unnecessary re-registrations
     // on Android Chrome PWA where token retrieval can be slow.
     try {
