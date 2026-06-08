@@ -1,8 +1,8 @@
 # PowerShell script to update Flutter Web icons using the generated premium app icon
 Add-Type -AssemblyName System.Drawing
 
-$inputPath = "C:\Users\RasyidKurniawan\.gemini\antigravity-ide\brain\1ac1f235-6b5b-4711-8304-94324d0840ab\app_icon_exact.png"
-$webDir = "c:\Android\StudioProjects\sholat_nu_muhamadiyah\web"
+$inputPath = "$PSScriptRoot\app_icon_exact.png"
+$webDir = "$PSScriptRoot\..\web"
 
 function Resize-Image {
     param (

@@ -420,6 +420,45 @@
       })();
     };
 
+    window.registerBackgroundSync = async function () {
+      if (!('serviceWorker' in navigator)) return;
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        
+        // Register standard Background Sync
+        if ('sync' in reg) {
+          await reg.sync.register('sync-app-data').catch((e) => {
+            console.warn('[Background Sync] Registration failed:', e);
+          });
+          console.log('[Background Sync] Registered successfully.');
+        } else {
+          console.log('[Background Sync] Not supported by this browser.');
+        }
+
+        // Register Periodic Background Sync
+        if ('periodicSync' in reg) {
+          const status = await navigator.permissions.query({
+            name: 'periodic-background-sync',
+          }).catch(() => null);
+          
+          if (!status || status.state === 'granted') {
+            await reg.periodicSync.register('update-app-cache', {
+              minInterval: 24 * 60 * 60 * 1000, // 24 hours
+            }).catch((e) => {
+              console.warn('[Periodic Sync] Registration failed:', e);
+            });
+            console.log('[Periodic Sync] Registered successfully.');
+          } else {
+            console.log('[Periodic Sync] Permission state is:', status.state);
+          }
+        } else {
+          console.log('[Periodic Sync] Not supported by this browser.');
+        }
+      } catch (err) {
+        console.warn('[Sync Registration] Failed:', err);
+      }
+    };
+
     window.registerFirebaseMessagingSW = async function () {
       if (!('serviceWorker' in navigator)) {
         console.warn('[FCM] Service worker not supported in this browser.');
@@ -429,6 +468,7 @@
         let reg = await navigator.serviceWorker.getRegistration();
         if (reg && reg.active) {
           console.log('[FCM] SW already active:', reg.active.scriptURL);
+          window.registerBackgroundSync();
           return true;
         }
 
@@ -447,6 +487,7 @@
         console.log('[FCM] No active SW found. Registering:', swUrl);
         reg = await navigator.serviceWorker.register(swUrl);
         console.log('[FCM] SW registered:', reg.scope);
+        window.registerBackgroundSync();
         return true;
       } catch (err) {
         console.error('[FCM] SW registration failed:', err);
@@ -634,7 +675,7 @@
         // 2. Fetch critical entry point files with 'cache: reload' + nocache query to force-evict HTTP cache
         const criticalUrls = [
           window.location.pathname,
-          'flutter_bootstrap.js?v=1780830474441',
+          'flutter_bootstrap.js?v=1780878503423',
           'flutter_service_worker.js',
           'manifest.json',
           'version.json'
@@ -886,7 +927,7 @@
   </div>
 
 
-  <script src="flutter_bootstrap.js?v=1780830474441" async></script>
+  <script src="flutter_bootstrap.js?v=1780878503423" async></script>
 </body>
 
 </html>

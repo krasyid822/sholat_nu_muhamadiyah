@@ -1,12 +1,39 @@
 {
     "name": "Al-Waqt: Sholat NU & Muhammadiyah",
     "short_name": "Al-Waqt",
+    "id": "/",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#05120C",
     "theme_color": "#0C1913",
     "description": "Jadwal sholat presisi tinggi Kemenag & Muhammadiyah serta simulator visibilitas hilal interaktif.",
     "orientation": "portrait-primary",
+    "display_override": ["standalone", "window-controls-overlay", "minimal-ui"],
+    "scope": "/",
+    "lang": "id",
+    "dir": "ltr",
+    "related_applications": [
+        {
+            "platform": "play",
+            "url": "https://play.google.com/store/apps/details?id=com.krasyid822.sholat_nu_muhamadiyah",
+            "id": "com.krasyid822.sholat_nu_muhamadiyah"
+        },
+        {
+            "platform": "webapp",
+            "url": "https://al-waqt-9cdb7.web.app/manifest.json"
+        }
+    ],
+    "iarc_rating_id": "23c21c7d-e79e-4c12-9c1b-2ea395bb2d7f",
+    "scope_extensions": [
+        {
+            "type": "origin",
+            "origin": "https://al-waqt-9cdb7.web.app"
+        },
+        {
+            "type": "origin",
+            "origin": "https://al-waqt-9cdb7.firebaseapp.com"
+        }
+    ],
     "prefer_related_applications": false,
     "categories": ["utilities", "education", "lifestyle"],
     "shortcuts": [
@@ -47,6 +74,22 @@
             "sizes": "512x512",
             "type": "image/png",
             "purpose": "maskable"
+        }
+    ],
+    "screenshots": [
+        {
+            "src": "screenshots/screenshot_mobile.png",
+            "sizes": "1024x1024",
+            "type": "image/jpeg",
+            "form_factor": "narrow",
+            "label": "Tampilan Aplikasi Al-Waqt di Mobile"
+        },
+        {
+            "src": "screenshots/screenshot_desktop.png",
+            "sizes": "1024x1024",
+            "type": "image/jpeg",
+            "form_factor": "wide",
+            "label": "Tampilan Kalender & Hilal Al-Waqt di Desktop"
         }
     ]
 }

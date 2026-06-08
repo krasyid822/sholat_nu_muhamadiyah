@@ -7,12 +7,14 @@ import 'dart:js' as js;
 import '../utils/js_helper.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
+import 'package:adhan/adhan.dart';
 
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../config/app_env.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/settings_provider.dart';
+import '../models/app_settings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class DevMenu extends ConsumerStatefulWidget {
@@ -633,6 +635,157 @@ class _DevMenuState extends ConsumerState<DevMenu> {
     );
   }
 
+  Map<String, dynamic>? _calculateTestCoordinates() {
+    final now = DateTime.now();
+    final targetTime = now.add(const Duration(seconds: 10));
+    
+    final settings = ref.read(settingsProvider);
+    final latitude = settings.gpsLatitude ?? settings.customLatitude;
+    
+    // Setup calculation parameters
+    CalculationParameters params;
+    if (settings.calcMethod == CalcMethod.kemenag) {
+      params = CalculationMethod.singapore.getParameters();
+    } else {
+      params = CalculationMethod.muslim_world_league.getParameters();
+      params.fajrAngle = 18.0;
+      params.ishaAngle = 18.0;
+    }
+    
+    params.madhab = Madhab.shafi;
+    if (settings.useIhtiyati) {
+      params.adjustments.fajr = 2;
+      params.adjustments.dhuhr = 2;
+      params.adjustments.asr = 2;
+      params.adjustments.maghrib = 2;
+      params.adjustments.isha = 2;
+    } else {
+      params.adjustments.fajr = 0;
+      params.adjustments.dhuhr = 0;
+      params.adjustments.asr = 0;
+      params.adjustments.maghrib = 0;
+      params.adjustments.isha = 0;
+    }
+
+    double bestDiffSeconds = 999999.0;
+    String bestPrayerName = '';
+    DateTime? bestPrayerTime;
+
+    // Pass 1: Coarse search (-180 to 180, step 1.0)
+    double coarseBestLon = 0.0;
+    for (double lon = -180.0; lon <= 180.0; lon += 1.0) {
+      final coordinates = Coordinates(latitude, lon);
+      final todayDate = DateComponents.from(targetTime);
+      final prayerTimes = PrayerTimes(coordinates, todayDate, params);
+
+      final imsakTime = prayerTimes.fajr.subtract(const Duration(minutes: 10));
+      final times = {
+        'Imsak': imsakTime,
+        'Subuh': prayerTimes.fajr,
+        'Syuruq': prayerTimes.sunrise,
+        'Dzuhur': prayerTimes.dhuhr,
+        'Ashar': prayerTimes.asr,
+        'Maghrib': prayerTimes.maghrib,
+        'Isya': prayerTimes.isha
+      };
+
+      for (final entry in times.entries) {
+        final diffSeconds = (entry.value.difference(targetTime).inMilliseconds.abs()) / 1000.0;
+        if (diffSeconds < bestDiffSeconds) {
+          bestDiffSeconds = diffSeconds;
+          coarseBestLon = lon;
+          bestPrayerName = entry.key;
+          bestPrayerTime = entry.value;
+        }
+      }
+    }
+
+    // Pass 2: Refined search around coarseBestLon (step 0.01)
+    bestDiffSeconds = 999999.0;
+    double refinedBestLon = coarseBestLon;
+    for (double lon = coarseBestLon - 1.0; lon <= coarseBestLon + 1.0; lon += 0.01) {
+      final coordinates = Coordinates(latitude, lon);
+      final todayDate = DateComponents.from(targetTime);
+      final prayerTimes = PrayerTimes(coordinates, todayDate, params);
+
+      final imsakTime = prayerTimes.fajr.subtract(const Duration(minutes: 10));
+      final times = {
+        'Imsak': imsakTime,
+        'Subuh': prayerTimes.fajr,
+        'Syuruq': prayerTimes.sunrise,
+        'Dzuhur': prayerTimes.dhuhr,
+        'Ashar': prayerTimes.asr,
+        'Maghrib': prayerTimes.maghrib,
+        'Isya': prayerTimes.isha
+      };
+
+      for (final entry in times.entries) {
+        final diffSeconds = (entry.value.difference(targetTime).inMilliseconds.abs()) / 1000.0;
+        if (diffSeconds < bestDiffSeconds) {
+          bestDiffSeconds = diffSeconds;
+          refinedBestLon = lon;
+          bestPrayerName = entry.key;
+          bestPrayerTime = entry.value;
+        }
+      }
+    }
+
+    // Pass 3: Ultra-precise search (step 0.0001)
+    bestDiffSeconds = 999999.0;
+    double ultraBestLon = refinedBestLon;
+    for (double lon = refinedBestLon - 0.01; lon <= refinedBestLon + 0.01; lon += 0.0001) {
+      final coordinates = Coordinates(latitude, lon);
+      final todayDate = DateComponents.from(targetTime);
+      final prayerTimes = PrayerTimes(coordinates, todayDate, params);
+
+      final imsakTime = prayerTimes.fajr.subtract(const Duration(minutes: 10));
+      final times = {
+        'Imsak': imsakTime,
+        'Subuh': prayerTimes.fajr,
+        'Syuruq': prayerTimes.sunrise,
+        'Dzuhur': prayerTimes.dhuhr,
+        'Ashar': prayerTimes.asr,
+        'Maghrib': prayerTimes.maghrib,
+        'Isya': prayerTimes.isha
+      };
+
+      for (final entry in times.entries) {
+        final diffSeconds = (entry.value.difference(targetTime).inMilliseconds.abs()) / 1000.0;
+        if (diffSeconds < bestDiffSeconds) {
+          bestDiffSeconds = diffSeconds;
+          ultraBestLon = lon;
+          bestPrayerName = entry.key;
+          bestPrayerTime = entry.value;
+        }
+      }
+    }
+
+    // Log to DevTools console in Web if we found a good match
+    if (kIsWeb && bestDiffSeconds < 600.0) {
+      try {
+        js.context['console']?.callMethod('log', [
+          '[🎯 DevMenu Coords] Target: $bestPrayerName at ${DateFormat('HH:mm:ss').format(bestPrayerTime!.toLocal())}. Latitude: $latitude, Longitude: ${ultraBestLon.toStringAsFixed(6)} (Diff: ${bestDiffSeconds.toStringAsFixed(2)}s)'
+        ]);
+      } catch (_) {}
+    }
+
+    return {
+      'latitude': latitude,
+      'longitude': ultraBestLon,
+      'prayerName': bestPrayerName,
+      'prayerTime': bestPrayerTime,
+      'diffSeconds': bestDiffSeconds,
+    };
+  }
+
+  Future<void> _applyTestCoordinates(double lat, double lng) async {
+    final settingsNotifier = ref.read(settingsProvider.notifier);
+    await settingsNotifier.setLocationMode(LocationMode.custom);
+    await settingsNotifier.setCustomCoordinates(lat, lng);
+    _showSnack('Koordinat ($lat, ${lng.toStringAsFixed(6)}) berhasil diterapkan!');
+    _loadDiagnostics();
+  }
+
   @override
   Widget build(BuildContext context) {
     const gold = Color(0xFFD4AF37);
@@ -976,6 +1129,124 @@ class _DevMenuState extends ConsumerState<DevMenu> {
                   },
                 ),
               ],
+            ),
+            const SizedBox(height: 12),
+
+            // === Adaptive Test Coordinates Calculator ===
+            Builder(
+              builder: (context) {
+                final match = _calculateTestCoordinates();
+                final surfaceColor = const Color(0xFF112A1E);
+                
+                if (match == null) {
+                  return _buildCard(
+                    title: '🎯 Kalkulator Koordinat FCM',
+                    cardColor: cardColor,
+                    children: [
+                      const Text(
+                        'Gagal menghitung koordinat adaptif secara lokal.',
+                        style: TextStyle(color: Colors.redAccent, fontSize: 13),
+                      ),
+                    ],
+                  );
+                }
+
+                final double lat = match['latitude'];
+                final double lng = match['longitude'];
+                final String prayerName = match['prayerName'];
+                final DateTime prayerTime = match['prayerTime'];
+                final double diff = match['diffSeconds'];
+                final timeFormatted = DateFormat('HH:mm:ss').format(prayerTime.toLocal());
+
+                  return _buildCard(
+                  title: '🎯 Kalkulator Koordinat FCM',
+                  cardColor: cardColor,
+                  children: [
+                    const Text(
+                      'Menghitung koordinat adaptif secara otomatis agar sholat berikutnya berjarak tepat 10 detik dari jam sekarang untuk testing:',
+                      style: TextStyle(fontSize: 12, color: Colors.white70),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: surfaceColor,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Waktu Sekarang : ${DateFormat('HH:mm:ss').format(DateTime.now())} WIB'),
+                          const SizedBox(height: 4),
+                          Text('Target Sholat   : Waktu $prayerName ($timeFormatted WIB)'),
+                          const SizedBox(height: 4),
+                          Text('Latitude Mock   : $lat'),
+                          const SizedBox(height: 4),
+                          Text('Longitude Mock  : ${lng.toStringAsFixed(6)}'),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Akurasi Selisih : ${diff.toStringAsFixed(1)} detik',
+                            style: TextStyle(
+                              color: diff < 30 ? Colors.greenAccent : Colors.orangeAccent,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _actionButton(
+                            icon: Icons.copy,
+                            label: 'Salin Lat',
+                            onPressed: () {
+                              Clipboard.setData(ClipboardData(text: lat.toString()));
+                              _showSnack('Latitude disalin: $lat');
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: _actionButton(
+                            icon: Icons.copy,
+                            label: 'Salin Lng',
+                            onPressed: () {
+                              final lngStr = lng.toStringAsFixed(6);
+                              Clipboard.setData(ClipboardData(text: lngStr));
+                              _showSnack('Longitude disalin: $lngStr');
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: _actionButton(
+                            icon: Icons.copy_all,
+                            label: 'Lat, Lng',
+                            onPressed: () {
+                              final combined = '$lat, ${lng.toStringAsFixed(6)}';
+                              Clipboard.setData(ClipboardData(text: combined));
+                              _showSnack('Lat, Lng disalin: $combined');
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: _actionButton(
+                        icon: Icons.gps_fixed_rounded,
+                        label: 'Terapkan Langsung ke Aplikasi',
+                        onPressed: () => _applyTestCoordinates(lat, lng),
+                        color: Colors.teal.shade700,
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 12),
 

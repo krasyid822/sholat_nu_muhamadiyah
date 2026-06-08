@@ -1,8 +1,8 @@
 # PowerShell script to draw the exact CSS splash screen moon spinner icon natively using .NET System.Drawing
 Add-Type -AssemblyName System.Drawing
 
-$outputPath = "C:\Users\RasyidKurniawan\.gemini\antigravity-ide\brain\1ac1f235-6b5b-4711-8304-94324d0840ab\app_icon_exact.png"
-$webDir = "c:\Android\StudioProjects\sholat_nu_muhamadiyah\web"
+$outputPath = "$PSScriptRoot\app_icon_exact.png"
+$webDir = "$PSScriptRoot\..\web"
 
 # Create a 512x512 high-resolution bitmap
 $bmp = New-Object System.Drawing.Bitmap 512, 512
@@ -13,10 +13,7 @@ $graph.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
 $graph.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
 $graph.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
 
-# 1. Fill entire canvas with #05120C (Deep black-emerald canvas)
-$bgColor = [System.Drawing.Color]::FromArgb(255, 5, 18, 12)
-$bgBrush = New-Object System.Drawing.SolidBrush $bgColor
-$graph.FillRectangle($bgBrush, 0, 0, 512, 512)
+# 1. Background is left transparent by default (no FillRectangle).
 
 # 2. Draw Outer Glow (corresponds to CSS box-shadow: 0 0 20px rgba(212, 175, 55, 0.4))
 # Glow bounding box: diameter 420px, centered at 256, 256 (offset X/Y = 256 - 210 = 46)
@@ -46,13 +43,17 @@ $graph.FillPath($baseBrush, $basePath)
 # Bounding box: X = 307 - 150 = 157, Y = 252 - 150 = 102. Diameter = 300px.
 $maskPath = New-Object System.Drawing.Drawing2D.GraphicsPath
 $maskPath.AddEllipse(157, 102, 300, 300)
-$graph.FillPath($bgBrush, $maskPath)
+
+# Set compositing mode to SourceCopy to act as an eraser
+$graph.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
+$eraseBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::Transparent)
+$graph.FillPath($eraseBrush, $maskPath)
+$eraseBrush.Dispose()
 
 # Save the master high-resolution icon
 $bmp.Save($outputPath, [System.Drawing.Imaging.ImageFormat]::Png)
 
 # Clean up resources
-$bgBrush.Dispose()
 $glowBrush.Dispose()
 $glowPath.Dispose()
 $baseBrush.Dispose()
