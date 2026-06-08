@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Al-Waqt Widget</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Adhan JS library -->
+  <script src="https://cdn.jsdelivr.net/npm/adhan@4.4.3/dist/adhan.umd.min.js"></script>
+  <style>
+    body {
+      background-color: transparent;
+      color: #FFFFFF;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      margin: 0;
+      padding: 8px;
+      box-sizing: border-box;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    .widget-container {
+      width: 100%;
+      max-width: 380px;
+      background: linear-gradient(135deg, rgba(12, 25, 19, 0.95) 0%, rgba(5, 18, 12, 0.98) 100%);
+      border: 1.5px solid rgba(212, 175, 55, 0.25);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+      border-radius: 24px;
+      padding: 14px;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      backdrop-filter: blur(10px);
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(212, 175, 55, 0.15);
+      padding-bottom: 8px;
+    }
+
+    .location-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .title {
+      color: #D4AF37;
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      margin: 0;
+    }
+
+    .city {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.6);
+      font-weight: 500;
+    }
+
+    .time-info {
+      text-align: right;
+    }
+
+    .clock {
+      font-size: 18px;
+      font-weight: 700;
+      color: #FFFFFF;
+      letter-spacing: 0.5px;
+    }
+
+    .countdown {
+      font-size: 9px;
+      color: #81C784;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .prayers-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 4px;
+    }
+
+    .prayer-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 6px 2px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      transition: all 0.3s ease;
+    }
+
+    .prayer-card.active {
+      background: rgba(212, 175, 55, 0.08);
+      border-color: rgba(212, 175, 55, 0.4);
+      box-shadow: 0 0 10px rgba(212, 175, 55, 0.15);
+    }
+
+    .prayer-name {
+      font-size: 10px;
+      font-weight: 700;
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    .prayer-card.active .prayer-name {
+      color: #D4AF37;
+    }
+
+    .prayer-time {
+      font-size: 11px;
+      font-weight: 600;
+      color: #FFFFFF;
+    }
+
+    .prayer-card.active .prayer-time {
+      font-weight: 700;
+      color: #D4AF37;
+      text-shadow: 0 0 5px rgba(212, 175, 55, 0.3);
+    }
+
+    .footer-note {
+      font-size: 8px;
+      color: rgba(255, 255, 255, 0.3);
+      text-align: center;
+      margin: 0;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="widget-container">
+    <div class="header">
+      <div class="location-info">
+        <h1 class="title">AL-WAQT</h1>
+        <div id="city-name" class="city">Loading...</div>
+      </div>
+      <div class="time-info">
+        <div id="clock" class="clock">00:00:00</div>
+        <div id="countdown" class="countdown">-00:00:00</div>
+      </div>
+    </div>
+
+    <div class="prayers-grid">
+      <div id="card-Subuh" class="prayer-card">
+        <span class="prayer-name">SUBUH</span>
+        <span id="time-Subuh" class="prayer-time">--:--</span>
+      </div>
+      <div id="card-Syuruq" class="prayer-card">
+        <span class="prayer-name">SYURUQ</span>
+        <span id="time-Syuruq" class="prayer-time">--:--</span>
+      </div>
+      <div id="card-Dzuhur" class="prayer-card">
+        <span class="prayer-name">DZUHUR</span>
+        <span id="time-Dzuhur" class="prayer-time">--:--</span>
+      </div>
+      <div id="card-Ashar" class="prayer-card">
+        <span class="prayer-name">ASHAR</span>
+        <span id="time-Ashar" class="prayer-time">--:--</span>
+      </div>
+      <div id="card-Maghrib" class="prayer-card">
+        <span class="prayer-name">MAGHRIB</span>
+        <span id="time-Maghrib" class="prayer-time">--:--</span>
+      </div>
+      <div id="card-Isya" class="prayer-card">
+        <span class="prayer-name">ISYA</span>
+        <span id="time-Isya" class="prayer-time">--:--</span>
+      </div>
+    </div>
+
+    <p id="method-note" class="footer-note">Metode Hisab: Kemenag RI</p>
+  </div>
+
+  <script>
+    // Shared Preferences Decoder
+    function getPref(key, defaultValue) {
+      let val = localStorage.getItem('flutter.' + key);
+      if (!val) return defaultValue;
+      if (val.startsWith('"') && val.endsWith('"')) {
+        val = val.substring(1, val.length - 1);
+      }
+      const prefix = 'VGhpcyBpcyB0aGUgcHJlZml4Lg';
+      if (val.startsWith(prefix)) {
+        val = val.substring(prefix.length);
+      }
+      if (val === 'true') return true;
+      if (val === 'false') return false;
+      const num = Number(val);
+      if (!isNaN(num)) return num;
+      return val;
+    }
+
+    let calculatedTimes = {};
+    let nextPrayerName = "";
+    let nextPrayerTime = null;
+
+    function formatTime(date) {
+      const h = String(date.getHours()).padStart(2, '0');
+      const m = String(date.getMinutes()).padStart(2, '0');
+      return `${h}:${m}`;
+    }
+
+    function calculatePrayerTimes() {
+      const now = new Date();
+      
+      // Load configuration from local storage
+      const locationMode = getPref('location_mode', 2); // 0: preset, 1: custom, 2: gps
+      const calcMethod = getPref('calc_method', 0); // 0: kemenag, 1: muhammadiyah
+      const useIhtiyati = getPref('use_ihtiyati', true);
+      const selectedCity = getPref('selected_city', 'Jakarta');
+
+      let latitude = -6.2088;
+      let longitude = 106.8456;
+      let displayName = selectedCity;
+
+      if (locationMode === 2) {
+        // GPS
+        const gpsLat = getPref('gps_lat', null);
+        const gpsLng = getPref('gps_lng', null);
+        const gpsLocName = getPref('gps_loc_name', 'Lokasi GPS');
+        if (gpsLat !== null && gpsLng !== null) {
+          latitude = gpsLat;
+          longitude = gpsLng;
+          displayName = gpsLocName.split(',')[0];
+        }
+      } else if (locationMode === 1) {
+        // Custom coords
+        const customLat = getPref('custom_lat', null);
+        const customLng = getPref('custom_lng', null);
+        if (customLat !== null && customLng !== null) {
+          latitude = customLat;
+          longitude = customLng;
+          displayName = "Kustom";
+        }
+      }
+
+      document.getElementById('city-name').innerText = displayName;
+
+      // Set calculation parameters
+      let params;
+      let methodLabel = "Kemenag RI";
+      if (calcMethod === 1) {
+        // Muhammadiyah
+        params = adhan.CalculationMethod.MuslimWorldLeague();
+        params.fajrAngle = 18.0;
+        params.ishaAngle = 18.0;
+        methodLabel = "Muhammadiyah";
+      } else {
+        // Kemenag
+        params = adhan.CalculationMethod.Singapore();
+        methodLabel = "Kemenag (NU)";
+      }
+
+      if (useIhtiyati) {
+        params.adjustments.fajr = 2;
+        params.adjustments.dhuhr = 2;
+        params.adjustments.asr = 2;
+        params.adjustments.maghrib = 2;
+        params.adjustments.isha = 2;
+        methodLabel += " (+2m Ihtiyati)";
+      }
+      
+      document.getElementById('method-note').innerText = "Metode: " + methodLabel;
+
+      const coordinates = new adhan.Coordinates(latitude, longitude);
+      const dateComponents = adhan.DateComponents.from(now);
+      const adhanTimes = new adhan.PrayerTimes(coordinates, dateComponents, params);
+
+      calculatedTimes = {
+        'Subuh': adhanTimes.fajr,
+        'Syuruq': adhanTimes.sunrise,
+        'Dzuhur': adhanTimes.dhuhr,
+        'Ashar': adhanTimes.asr,
+        'Maghrib': adhanTimes.maghrib,
+        'Isya': adhanTimes.isha
+      };
+
+      // Update UI times
+      for (const [name, time] of Object.entries(calculatedTimes)) {
+        document.getElementById(`time-${name}`).innerText = formatTime(time);
+      }
+    }
+
+    function updateWidget() {
+      const now = new Date();
+      
+      // Update clock
+      const h = String(now.getHours()).padStart(2, '0');
+      const m = String(now.getMinutes()).padStart(2, '0');
+      const s = String(now.getSeconds()).padStart(2, '0');
+      document.getElementById('clock').innerText = `${h}:${m}:${s}`;
+
+      // Recalculate once a day, or if empty
+      if (Object.keys(calculatedTimes).length === 0 || now.getHours() === 0 && now.getMinutes() === 0 && now.getSeconds() === 0) {
+        calculatePrayerTimes();
+      }
+
+      // Find next prayer
+      nextPrayerName = "";
+      nextPrayerTime = null;
+      let activePrayerName = "";
+
+      const prayerOrder = ['Subuh', 'Syuruq', 'Dzuhur', 'Ashar', 'Maghrib', 'Isya'];
+      
+      for (let i = 0; i < prayerOrder.length; i++) {
+        const name = prayerOrder[i];
+        const time = calculatedTimes[name];
+        if (time && time > now) {
+          nextPrayerName = name;
+          nextPrayerTime = time;
+          if (i > 0) {
+            activePrayerName = prayerOrder[i - 1];
+          } else {
+            activePrayerName = 'Isya'; // Default if before subuh
+          }
+          break;
+        }
+      }
+
+      // If all prayers today have passed, next is Subuh tomorrow
+      if (!nextPrayerTime) {
+        nextPrayerName = "Subuh";
+        activePrayerName = "Isya";
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        
+        // Calculate subuh for tomorrow
+        const locationMode = getPref('location_mode', 2);
+        const calcMethod = getPref('calc_method', 0);
+        const useIhtiyati = getPref('use_ihtiyati', true);
+        
+        let latitude = -6.2088;
+        let longitude = 106.8456;
+        if (locationMode === 2) {
+          const gpsLat = getPref('gps_lat', null);
+          const gpsLng = getPref('gps_lng', null);
+          if (gpsLat !== null && gpsLng !== null) {
+            latitude = gpsLat;
+            longitude = gpsLng;
+          }
+        } else if (locationMode === 1) {
+          const customLat = getPref('custom_lat', null);
+          const customLng = getPref('custom_lng', null);
+          if (customLat !== null && customLng !== null) {
+            latitude = customLat;
+            longitude = customLng;
+          }
+        }
+
+        let params = calcMethod === 1 ? adhan.CalculationMethod.MuslimWorldLeague() : adhan.CalculationMethod.Singapore();
+        if (calcMethod === 1) {
+          params.fajrAngle = 18.0;
+          params.ishaAngle = 18.0;
+        }
+        if (useIhtiyati) {
+          params.adjustments.fajr = 2;
+        }
+        const coordinates = new adhan.Coordinates(latitude, longitude);
+        const tomorrowComponents = adhan.DateComponents.from(tomorrow);
+        const tomorrowTimes = new adhan.PrayerTimes(coordinates, tomorrowComponents, params);
+        nextPrayerTime = tomorrowTimes.fajr;
+      }
+
+      // Update active highlight card
+      prayerOrder.forEach(name => {
+        const card = document.getElementById(`card-${name}`);
+        if (name === activePrayerName) {
+          card.classList.add('active');
+        } else {
+          card.classList.remove('active');
+        }
+      });
+
+      // Update countdown
+      const diffMs = nextPrayerTime - now;
+      const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      const diffSecs = Math.floor((diffMs % (1000 * 60)) / 1000);
+
+      const ch = String(diffHrs).padStart(2, '0');
+      const cm = String(diffMins).padStart(2, '0');
+      const cs = String(diffSecs).padStart(2, '0');
+      
+      document.getElementById('countdown').innerText = `-${ch}:${cm}:${cs} ${nextPrayerName}`;
+    }
+
+    // Initial setup
+    calculatePrayerTimes();
+    updateWidget();
+    
+    // Tick clock & countdown every second
+    setInterval(updateWidget, 1000);
+
+    // Refresh configurations when widget is refocused/clicked
+    window.addEventListener('focus', () => {
+      calculatePrayerTimes();
+      updateWidget();
+    });
+  </script>
+</body>
+</html>
