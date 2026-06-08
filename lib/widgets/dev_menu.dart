@@ -637,7 +637,7 @@ class _DevMenuState extends ConsumerState<DevMenu> {
 
   Map<String, dynamic>? _calculateTestCoordinates() {
     final now = DateTime.now();
-    final targetTime = now.add(const Duration(seconds: 10));
+    final targetTime = now.add(const Duration(seconds: 30));
     
     final settings = ref.read(settingsProvider);
     final latitude = settings.gpsLatitude ?? settings.customLatitude;
@@ -1163,7 +1163,7 @@ class _DevMenuState extends ConsumerState<DevMenu> {
                   cardColor: cardColor,
                   children: [
                     const Text(
-                      'Menghitung koordinat adaptif secara otomatis agar sholat berikutnya berjarak tepat 10 detik dari jam sekarang untuk testing:',
+                      'Menghitung koordinat adaptif secara otomatis agar sholat berikutnya berjarak tepat 30 detik dari jam sekarang untuk testing:',
                       style: TextStyle(fontSize: 12, color: Colors.white70),
                     ),
                     const SizedBox(height: 12),

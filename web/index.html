@@ -626,6 +626,7 @@
     }
 
     let wakeLockSentinel = null;
+    let shouldKeepScreenOn = false;
 
     window.requestScreenWakeLock = async function () {
       if (!('wakeLock' in navigator)) {
@@ -634,7 +635,15 @@
       }
       try {
         wakeLockSentinel = await navigator.wakeLock.request('screen');
+        shouldKeepScreenOn = true;
         console.log('Screen Wake Lock active');
+
+        // Handle auto-release by the system/browser
+        wakeLockSentinel.addEventListener('release', () => {
+          console.log('Screen Wake Lock released by system/browser');
+          wakeLockSentinel = null;
+        });
+
         return true;
       } catch (err) {
         console.error('Wake Lock request failed:', err);
@@ -643,6 +652,7 @@
     };
 
     window.releaseScreenWakeLock = async function () {
+      shouldKeepScreenOn = false;
       if (wakeLockSentinel !== null) {
         await wakeLockSentinel.release();
         wakeLockSentinel = null;
@@ -655,6 +665,25 @@
     window.isScreenWakeLockActive = function () {
       return wakeLockSentinel !== null;
     };
+
+    // Auto re-acquire wake lock when the app returns from background
+    document.addEventListener('visibilitychange', async () => {
+      if (document.visibilityState === 'visible' && shouldKeepScreenOn) {
+        console.log('[WakeLock] Page visible again, re-acquiring wake lock...');
+        try {
+          if (!('wakeLock' in navigator)) return;
+          wakeLockSentinel = await navigator.wakeLock.request('screen');
+          console.log('[WakeLock] Screen Wake Lock re-acquired successfully');
+
+          wakeLockSentinel.addEventListener('release', () => {
+            console.log('Screen Wake Lock released by system/browser');
+            wakeLockSentinel = null;
+          });
+        } catch (err) {
+          console.error('[WakeLock] Auto re-acquisition failed:', err);
+        }
+      }
+    });
 
     // Force update helper: clear caches + unregister service workers + hard reload.
     window.forceRefreshAppCache = async function () {
@@ -675,7 +704,7 @@
         // 2. Fetch critical entry point files with 'cache: reload' + nocache query to force-evict HTTP cache
         const criticalUrls = [
           window.location.pathname,
-          'flutter_bootstrap.js?v=1780878503423',
+          'flutter_bootstrap.js?v=1780879395901',
           'flutter_service_worker.js',
           'manifest.json',
           'version.json'
@@ -927,7 +956,7 @@
   </div>
 
 
-  <script src="flutter_bootstrap.js?v=1780878503423" async></script>
+  <script src="flutter_bootstrap.js?v=1780879395901" async></script>
 </body>
 
 </html>
