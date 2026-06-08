@@ -117,3 +117,7 @@ google adsense
 buat widget otomatis adaptif mengikuti ukuran widget launcher android
 
 preset 4x2
+
+tambahkan mekanisme untuk meminta izin lokasi presisi di widget.html agar bisa mendapatkan lokasi tanpa perlu membuka url utama aplikasi
+
+cegah widget melar, buat sudutnya tetap tajam saja jangan ada efek rounded

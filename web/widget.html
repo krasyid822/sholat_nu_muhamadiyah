@@ -1,143 +1,275 @@
 <!DOCTYPE html>
 <html lang="id">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Al-Waqt Widget</title>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet">
   <!-- Import Adhan locally (cached by Service Worker) -->
   <script src="adhan.umd.min.js"></script>
   <style>
+    :root {
+      --gold: #D4AF37;
+      --bg-gradient: linear-gradient(135deg, rgba(12, 25, 19, 0.95) 0%, rgba(5, 18, 12, 0.98) 100%);
+      --border-color: rgba(212, 175, 55, 0.25);
+    }
+
+    html {
+      background-color: transparent;
+    }
+
     body {
       background-color: transparent;
       color: #FFFFFF;
       font-family: 'Plus Jakarta Sans', sans-serif;
       margin: 0;
-      padding: 8px;
+      padding: 0;
       box-sizing: border-box;
       display: flex;
       justify-content: center;
       align-items: center;
-      min-height: 100vh;
+      width: 100vw;
+      height: 100vh;
       overflow: hidden;
     }
 
     .widget-container {
       width: 100%;
-      max-width: 380px;
-      background: linear-gradient(135deg, rgba(12, 25, 19, 0.95) 0%, rgba(5, 18, 12, 0.98) 100%);
-      border: 1.5px solid rgba(212, 175, 55, 0.25);
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
-      border-radius: 24px;
-      padding: 14px;
+      height: 100%;
+      background: var(--bg-gradient);
+      border: none;
+      border-radius: 0;
+      padding: clamp(6px, 2.5vmin, 20px) clamp(8px, 3vmin, 24px);
       box-sizing: border-box;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      justify-content: flex-start;
+      gap: clamp(4px, 1.5vmin, 14px);
       backdrop-filter: blur(10px);
     }
 
+    /* ── HEADER ─────────────────────────────────────────────── */
     .header {
       display: flex;
       justify-content: space-between;
       align-items: center;
       border-bottom: 1px solid rgba(212, 175, 55, 0.15);
-      padding-bottom: 8px;
+      padding-bottom: clamp(3px, 1vmin, 10px);
+      width: 100%;
+      flex-shrink: 0;
+      min-width: 0;
+      gap: 6px;
+      overflow: hidden;
     }
 
     .location-info {
       display: flex;
       flex-direction: column;
       gap: 2px;
+      min-width: 0;
+      flex-shrink: 1;
+      overflow: hidden;
     }
 
     .title {
-      color: #D4AF37;
-      font-size: 14px;
+      color: var(--gold);
+      /* vmin = min(vw, vh) — scales with the narrower dimension, safe on both landscape and portrait */
+      font-size: clamp(11px, 5.5vmin, 30px);
       font-weight: 800;
       letter-spacing: 2px;
       margin: 0;
+      line-height: 1.1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .city {
-      font-size: 11px;
+      font-size: clamp(8px, 3.2vmin, 17px);
       color: rgba(255, 255, 255, 0.6);
       font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      transition: color 0.2s ease;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .city:hover {
+      color: var(--gold);
     }
 
     .time-info {
       text-align: right;
+      flex-shrink: 0;
     }
 
     .clock {
-      font-size: 18px;
+      font-size: clamp(13px, 6vmin, 38px);
       font-weight: 700;
       color: #FFFFFF;
       letter-spacing: 0.5px;
+      line-height: 1.1;
+      white-space: nowrap;
     }
 
     .countdown {
-      font-size: 9px;
+      font-size: clamp(7px, 3vmin, 16px);
       color: #81C784;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
+      white-space: nowrap;
     }
 
+    /* ── PRAYERS GRID ───────────────────────────────────────── */
+    /* Default: landscape → 6 columns × 1 row */
     .prayers-grid {
       display: grid;
       grid-template-columns: repeat(6, 1fr);
-      gap: 4px;
+      gap: clamp(3px, 1.2vmin, 10px);
+      width: 100%;
+      flex: 1;
+      min-height: 0;
+      align-content: stretch;
+    }
+
+    /* Mendekati square (4:3 ke bawah) → 3 kolom × 2 baris */
+    @media (max-aspect-ratio: 4/3) {
+      .prayers-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+
+    /* Portrait (lebih tinggi dari lebar) → 2 kolom × 3 baris */
+    @media (max-aspect-ratio: 1/1) {
+      .prayers-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    /* Tinggi (tinggi ≥ 2× lebar) → 1 kolom × 6 baris — maksimal row */
+    @media (max-aspect-ratio: 1/2) {
+      .prayers-grid {
+        grid-template-columns: repeat(1, 1fr);
+      }
     }
 
     .prayer-card {
       background: rgba(255, 255, 255, 0.02);
       border: 1px solid rgba(255, 255, 255, 0.05);
-      border-radius: 12px;
-      padding: 6px 2px;
+      border-radius: 0;
+      padding: clamp(4px, 1.5vmin, 18px) 4px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 3px;
+      justify-content: center;
+      gap: clamp(3px, 0.8vmin, 10px);
       transition: all 0.3s ease;
+      min-width: 0;
+      overflow: hidden;
     }
 
     .prayer-card.active {
       background: rgba(212, 175, 55, 0.08);
       border-color: rgba(212, 175, 55, 0.4);
-      box-shadow: 0 0 10px rgba(212, 175, 55, 0.15);
+      box-shadow: 0 0 8px rgba(212, 175, 55, 0.15);
     }
 
     .prayer-name {
-      font-size: 10px;
+      font-size: clamp(7px, 3vmin, 18px);
       font-weight: 700;
       color: rgba(255, 255, 255, 0.5);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      width: 100%;
+      text-align: center;
     }
 
     .prayer-card.active .prayer-name {
-      color: #D4AF37;
+      color: var(--gold);
     }
 
     .prayer-time {
-      font-size: 11px;
+      font-size: clamp(9px, 4.5vmin, 28px);
       font-weight: 600;
       color: #FFFFFF;
+      white-space: nowrap;
     }
 
     .prayer-card.active .prayer-time {
       font-weight: 700;
-      color: #D4AF37;
+      color: var(--gold);
       text-shadow: 0 0 5px rgba(212, 175, 55, 0.3);
     }
 
+    /* ── FOOTER ─────────────────────────────────────────────── */
     .footer-note {
-      font-size: 8px;
+      font-size: clamp(6px, 2vmin, 13px);
       color: rgba(255, 255, 255, 0.3);
       text-align: center;
       margin: 0;
+      flex-shrink: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── Very short horizontal widget (e.g. 4×1) ─────────── */
+    @media (max-height: 115px) {
+      .widget-container {
+        flex-direction: row;
+        align-items: center;
+        padding: 4px 8px;
+        gap: 8px;
+      }
+
+      .header {
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: center;
+        border-bottom: none;
+        border-right: 1px solid rgba(212, 175, 55, 0.15);
+        padding-bottom: 0;
+        padding-right: 8px;
+        gap: 1px;
+        width: auto;
+        height: 100%;
+        flex-shrink: 0;
+      }
+
+      .time-info {
+        text-align: left;
+      }
+
+      .prayers-grid {
+        flex-grow: 1;
+        gap: 3px;
+        height: 100%;
+        align-content: center;
+        /* Force 6 columns regardless of aspect ratio on short bar */
+        grid-template-columns: repeat(6, 1fr) !important;
+      }
+
+      .prayer-card {
+        padding: 2px;
+        height: 100%;
+        justify-content: center;
+      }
+
+      .footer-note {
+        display: none;
+      }
     }
   </style>
 </head>
+
 <body>
 
   <div class="widget-container">
@@ -217,7 +349,7 @@
         return;
       }
       const now = new Date();
-      
+
       // Load configuration from local storage
       const locationMode = getPref('location_mode', 2); // 0: preset, 1: custom, 2: gps
       const calcMethod = getPref('calc_method', 0); // 0: kemenag, 1: muhammadiyah
@@ -233,10 +365,19 @@
         const gpsLat = getPref('gps_lat', null);
         const gpsLng = getPref('gps_lng', null);
         const gpsLocName = getPref('gps_loc_name', 'Lokasi GPS');
+
+        // Auto-request location on load to keep it fresh
+        if (!window.hasRequestedLocationAuto) {
+          window.hasRequestedLocationAuto = true;
+          requestDeviceLocation();
+        }
+
         if (gpsLat !== null && gpsLng !== null) {
           latitude = gpsLat;
           longitude = gpsLng;
-          displayName = gpsLocName.split(',')[0];
+          displayName = gpsLocName ? gpsLocName.split(',')[0] : selectedCity;
+        } else {
+          displayName = selectedCity;
         }
       } else if (locationMode === 1) {
         // Custom coords
@@ -274,7 +415,7 @@
         params.adjustments.isha = 2;
         methodLabel += " (+2m Ihtiyati)";
       }
-      
+
       document.getElementById('method-note').innerText = "Metode: " + methodLabel;
 
       const coordinates = new adhan.Coordinates(latitude, longitude);
@@ -297,7 +438,7 @@
 
     function updateWidget() {
       const now = new Date();
-      
+
       // Update clock
       const h = String(now.getHours()).padStart(2, '0');
       const m = String(now.getMinutes()).padStart(2, '0');
@@ -320,7 +461,7 @@
       let activePrayerName = "";
 
       const prayerOrder = ['Subuh', 'Syuruq', 'Dzuhur', 'Ashar', 'Maghrib', 'Isya'];
-      
+
       for (let i = 0; i < prayerOrder.length; i++) {
         const name = prayerOrder[i];
         const time = calculatedTimes[name];
@@ -342,12 +483,12 @@
         activePrayerName = "Isya";
         const tomorrow = new Date();
         tomorrow.setDate(tomorrow.getDate() + 1);
-        
+
         // Calculate subuh for tomorrow
         const locationMode = getPref('location_mode', 2);
         const calcMethod = getPref('calc_method', 0);
         const useIhtiyati = getPref('use_ihtiyati', true);
-        
+
         let latitude = -6.2088;
         let longitude = 106.8456;
         if (locationMode === 2) {
@@ -398,16 +539,61 @@
       const ch = String(diffHrs).padStart(2, '0');
       const cm = String(diffMins).padStart(2, '0');
       const cs = String(diffSecs).padStart(2, '0');
-      
+
       document.getElementById('countdown').innerText = `-${ch}:${cm}:${cs} ${nextPrayerName}`;
     }
 
     // Initial setup
     calculatePrayerTimes();
     updateWidget();
-    
+
+    function requestDeviceLocation() {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            const prefix = 'VGhpcyBpcyB0aGUgcHJlZml4Lg';
+            localStorage.setItem('flutter.gps_lat', prefix + lat);
+            localStorage.setItem('flutter.gps_lng', prefix + lng);
+            localStorage.setItem('flutter.location_mode', prefix + '2');
+
+            calculatePrayerTimes();
+            updateWidget();
+
+            // Reverse geocoding via OpenStreetMap Nominatim
+            fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=12&addressdetails=1`)
+              .then(res => res.json())
+              .then(data => {
+                const addr = data.address || {};
+                // Priority: city_district/suburb (for local areas), city, town, municipality, county, state
+                const locName = addr.city_district || addr.suburb || addr.city || addr.town || addr.municipality || addr.county || addr.state || 'GPS';
+                localStorage.setItem('flutter.gps_loc_name', prefix + locName);
+                calculatePrayerTimes();
+                updateWidget();
+              })
+              .catch(err => {
+                console.warn('Nominatim reverse geocoding failed:', err);
+                if (!localStorage.getItem('flutter.gps_loc_name')) {
+                  localStorage.setItem('flutter.gps_loc_name', prefix + 'GPS');
+                  calculatePrayerTimes();
+                  updateWidget();
+                }
+              });
+          },
+          (error) => {
+            console.error('Error getting location:', error);
+          },
+          { enableHighAccuracy: true, timeout: 10000 }
+        );
+      }
+    }
+
     // Tick clock & countdown every second
     setInterval(updateWidget, 1000);
+
+    // Bind click listener for manual geolocation request
+    document.getElementById('city-name').addEventListener('click', requestDeviceLocation);
 
     // Refresh configurations when widget is refocused/clicked
     window.addEventListener('focus', () => {
@@ -416,4 +602,5 @@
     });
   </script>
 </body>
+
 </html>
