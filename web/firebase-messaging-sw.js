@@ -145,7 +145,7 @@ self.addEventListener("notificationclick", (event) => {
 });
 
 // --- Offline Support Integration (MDN js13kGames PWA Tutorial Pattern) ---
-const cacheName = "al-waqt-v1";
+const cacheName = "al-waqt-v1.2";
 const appShellFiles = [
   "./",
   "./index.html",
@@ -158,7 +158,9 @@ const appShellFiles = [
   "./icons/Icon-512.png",
   "./icons/Icon-maskable-192.png",
   "./icons/Icon-maskable-512.png",
-  "./azan.mp3"
+  "./azan.mp3",
+  "./widget.html",
+  "./adhan.umd.min.js"
 ];
 
 // Pre-cache App Shell during installation

@@ -2,6 +2,33 @@
 
 Flutter app jadwal sholat NU & Muhammadiyah.
 
+## Widget
+
+Pembaruan ini telah dideploy dan dapat diakses secara live di: 👉 https://al-waqt-9cdb7.web.app/widget.html
+
+Cara memasangnya ke Launcher Android Anda:
+1. Buka Google Play Store di Android Anda, cari dan instal aplikasi "Web Widget" (oleh anod atau aplikasi serupa seperti WidgetsWeb).
+2. Tambahkan widget baru dari aplikasi tersebut ke layar beranda (launcher) HP Anda.
+3. Masukkan URL widget: https://al-waqt-9cdb7.web.app/widget.html
+4. Atur interval penyegaran (refresh interval) di pengaturan widget tersebut agar selalu menyegarkan waktu (misalnya setiap beberapa detik/menit) dan setel ukuran grid-nya agar pas di beranda.
+
+### Solusi: Melewati Sandbox Lewat Parameter URL
+Untuk mengatasi batasan sandbox WebView ini, kami telah memperbarui kode agar widget.html dapat menerima koordinat lokasi, metode hisab, dan status ihtiyati langsung via URL Query Parameters sebagai prioritas utama.
+
+Sekarang Anda bisa memasukkan URL yang sudah terisi pengaturan ke dalam aplikasi Web Widget Anda:
+
+text
+https://al-waqt-9cdb7.web.app/widget.html?lat=[LATITUDE]&lng=[LONGITUDE]&city=[NAMA_KOTA]&method=[METODE]&ihtiyati=[true/false]&rt=[KOLOM,BARIS]
+Parameter yang Didukung:
+lat & lng: Garis lintang & bujur lokasi Anda (misal: lat=-6.2088&lng=106.8456).
+city / name: Nama kota yang ingin ditampilkan di widget (misal: city=Jakarta).
+method: Metode Hisab (0 untuk Kemenag/NU, 1 untuk Muhammadiyah).
+ihtiyati: Koreksi waktu pengaman (true untuk +2 menit, false untuk normal).
+rt: Ukuran kotak sel widget launcher (4,1 untuk flat memanjang, 3,2 atau 4,2 untuk vertikal/kotak).
+Contoh URL untuk dimasukkan ke Web Widget Anda:
+Contoh 4x1 (Flat Horizontal - Jakarta, Kemenag + Ihtiyati): https://al-waqt-9cdb7.web.app/widget.html?lat=-6.2088&lng=106.8456&city=Jakarta&method=0&ihtiyati=true&rt=4,1
+Contoh 3x2 (Kotak/Vertikal - Yogyakarta, Muhammadiyah): https://al-waqt-9cdb7.web.app/widget.html?lat=-7.7971&lng=110.3705&city=Yogyakarta&method=1&ihtiyati=true&rt=3,2
+
 ## Desain Sistem & Skema Warna
 
 Aplikasi Al-Waqt menggunakan skema warna tema gelap (*dark theme*) premium berikut:
@@ -86,3 +113,7 @@ ada masalah kompas tidak bisa diaktifkan kembali setelah pindah halaman
 google adsense
 
 ## Catatan
+
+buat widget otomatis adaptif mengikuti ukuran widget launcher android
+
+preset 4x2

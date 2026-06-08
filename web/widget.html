@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Al-Waqt Widget</title>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <!-- Adhan JS library -->
-  <script src="https://cdn.jsdelivr.net/npm/adhan@4.4.3/dist/adhan.umd.min.js"></script>
+  <!-- Import Adhan locally (cached by Service Worker) -->
+  <script src="adhan.umd.min.js"></script>
   <style>
     body {
       background-color: transparent;
@@ -212,6 +212,10 @@
     }
 
     function calculatePrayerTimes() {
+      if (!window.adhan) {
+        console.log('Adhan library not loaded yet. Waiting...');
+        return;
+      }
       const now = new Date();
       
       // Load configuration from local storage
@@ -274,8 +278,7 @@
       document.getElementById('method-note').innerText = "Metode: " + methodLabel;
 
       const coordinates = new adhan.Coordinates(latitude, longitude);
-      const dateComponents = adhan.DateComponents.from(now);
-      const adhanTimes = new adhan.PrayerTimes(coordinates, dateComponents, params);
+      const adhanTimes = new adhan.PrayerTimes(coordinates, now, params);
 
       calculatedTimes = {
         'Subuh': adhanTimes.fajr,
@@ -304,6 +307,11 @@
       // Recalculate once a day, or if empty
       if (Object.keys(calculatedTimes).length === 0 || now.getHours() === 0 && now.getMinutes() === 0 && now.getSeconds() === 0) {
         calculatePrayerTimes();
+      }
+
+      // If adhan is not loaded yet, don't run next-prayer logic
+      if (!window.adhan || Object.keys(calculatedTimes).length === 0) {
+        return;
       }
 
       // Find next prayer
@@ -367,8 +375,7 @@
           params.adjustments.fajr = 2;
         }
         const coordinates = new adhan.Coordinates(latitude, longitude);
-        const tomorrowComponents = adhan.DateComponents.from(tomorrow);
-        const tomorrowTimes = new adhan.PrayerTimes(coordinates, tomorrowComponents, params);
+        const tomorrowTimes = new adhan.PrayerTimes(coordinates, tomorrow, params);
         nextPrayerTime = tomorrowTimes.fajr;
       }
 
