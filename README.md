@@ -1,3 +1,5 @@
+![screenshot halaman utama](./assets/demo/img_714e1f7b.png)
+
 # sholat_nu_muhamadiyah
 
 Flutter app jadwal sholat NU & Muhammadiyah.
